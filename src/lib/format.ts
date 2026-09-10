@@ -37,6 +37,14 @@ export function timeAgo(iso: string): string {
   return months === 1 ? "1 month ago" : `${months} months ago`;
 }
 
+export function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+export function fileSize(bytes: number): string {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 export function carName(v: { year: number | null; make: string; model: string }): string {
   return [v.year, v.make, v.model].filter(Boolean).join(" ");
 }

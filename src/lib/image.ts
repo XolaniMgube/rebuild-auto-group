@@ -1,35 +1,33 @@
-// Shrinks a captured photo before it goes into localStorage.
-// Full-size phone photos are several MB each and would blow the
-// ~5MB quota after two or three parts.
-//
-// Once Supabase Storage is wired up this stops mattering — the
-// original goes to the bucket and we keep a URL instead.
+// Shrinks an image on the phone before upload. Originals are several MB; this
+// keeps uploads quick on mobile data. Re-encoding as JPEG also strips EXIF
+// data such as GPS location.
+export async function compressImage(source: Blob, maxEdge: number, quality: number): Promise<Blob> {
+  const url = URL.createObjectURL(source);
+  try {
+    const img = await loadImage(url);
+    const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas unavailable.");
+    // JPEG has no transparency; without this, transparent PNG scans turn black.
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Could not compress that image."))), "image/jpeg", quality)
+    );
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
-const MAX_EDGE = 900;
-const QUALITY = 0.72;
-
-export function fileToCompressedDataUrl(file: File): Promise<string> {
+function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Could not read that image."));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error("Could not open that image."));
-      img.onload = () => {
-        const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("Canvas unavailable."));
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", QUALITY));
-      };
-      img.src = reader.result as string;
-    };
-    reader.readAsDataURL(file);
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not open that image."));
+    img.src = src;
   });
 }

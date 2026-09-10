@@ -1,15 +1,23 @@
-"use client";
-import { use, useState } from "react";
-import Link from "next/link";
-import { useStore } from "@/lib/store";
-import { PartRow } from "@/components/PartRow";
-import { MobileHeader, PageHead } from "@/components/Shell";
-import { Button, Empty } from "@/components/ui";
-import { Icon } from "@/components/Icon";
-import { carName } from "@/lib/format";
-export default function CarPage({params}:{params:Promise<{id:string}>}) {
- const {id}=use(params);const vehicle=useStore(s=>s.vehicles.find(v=>v.id===id));const parts=useStore(s=>s.parts);const tasks=useStore(s=>s.tasks);const addTask=useStore(s=>s.addTask);const toggle=useStore(s=>s.toggleTask);const remove=useStore(s=>s.removeTask);const [task,setTask]=useState("");const [tab,setTab]=useState("parts");
- if(!vehicle)return <><MobileHeader title="Car project"/><Empty title="This project could not be found." action={<Link href="/cars" className="action">Back to projects</Link>}/></>;
- const own=parts.filter(p=>p.vehicleId===id && ["IN_STOCK","RESERVED"].includes(p.status));const checklist=tasks.filter(t=>t.vehicleId===id);const done=checklist.filter(t=>t.done).length;
- return <><MobileHeader title={carName(vehicle)}/><PageHead title={carName(vehicle)} crumb="Car project" actions={<Link href={`/add?car=${id}`} className="action"><Icon name="plus"/>Add part to project</Link>}/><main className="workspace !p-3 lg:!p-6 space-y-3"><Link href="/cars" className="text-xs text-slate">← All car projects</Link><div className="text-sm text-slate">{[vehicle.color,vehicle.registration].filter(Boolean).join(" · ")}{vehicle.notes && <details className="mt-2"><summary className="cursor-pointer min-h-11 flex items-center text-brand-blue">Car notes</summary><p className="pb-2">{vehicle.notes}</p></details>}</div><div className="flex flex-wrap gap-3"><Link href={`/add?car=${id}`} className="action"><Icon name="plus"/>Add a part</Link><Link href={`/search?car=${id}`} className="filter inline-flex items-center gap-2"><Icon name="search"/>Find parts</Link></div><div className="flex gap-2 xl:hidden" role="tablist" aria-label="Project sections">{[{id:"parts",label:`Parts (${own.length})`},{id:"checklist",label:`Checklist (${done}/${checklist.length})`}].map(t=><button key={t.id} id={`tab-${t.id}`} role="tab" aria-selected={tab===t.id} aria-controls={`panel-${t.id}`} onClick={()=>setTab(t.id)} className={`flex-1 min-h-11 rounded-lg text-sm font-semibold ${tab===t.id ? "bg-brand-blue text-white" : "bg-white border border-hairline text-slate"}`}>{t.label}</button>)}</div><div className="grid xl:grid-cols-[1fr_340px] gap-6 items-start"><section id="panel-parts" aria-label="Project parts" className={`panel overflow-hidden ${tab!=="parts" ? "hidden xl:block" : ""}`}><div className="flex items-center p-5 border-b border-hairline"><h2 className="font-bold">Parts in this project</h2><span className="ml-auto text-xs text-slate">{own.length} parts</span></div>{own.length ? own.map(p=><PartRow key={p.id} part={p} vehicle={vehicle} href={`/parts/${p.id}`}/>) : <Empty title="No parts yet" action={<Link href={`/add?car=${id}`} className="action">Add a part</Link>}/>}</section><aside id="panel-checklist" aria-label="Build checklist" className={`panel p-4 ${tab!=="checklist" ? "hidden xl:block" : ""}`}><div className="flex justify-between"><h2 className="font-bold">Build checklist</h2><span className="text-xs text-brand-blue">{done}/{checklist.length}</span></div><div className="h-1.5 bg-paper rounded-full my-5 overflow-hidden"><div className="bg-brand-blue h-full rounded-full transition-all" style={{width:`${checklist.length ? done/checklist.length*100 : 0}%`}}/></div><div className="space-y-3">{checklist.map(t=><div key={t.id} className="flex gap-3 items-start"><label className="flex gap-3 items-center text-sm flex-1 min-h-11 cursor-pointer"><input type="checkbox" checked={t.done} onChange={()=>toggle(t.id)} className="h-5 w-5 accent-[#123F94]"/><span className={t.done ? "line-through text-mist" : ""}>{t.name}</span></label><button onClick={()=>remove(t.id)} aria-label={`Remove ${t.name}`} className="text-mist hover:text-brand-red min-h-11 min-w-11">×</button></div>)}</div>{!checklist.length && <p className="text-sm text-slate mb-4">No tasks yet</p>}<form onSubmit={e=>{e.preventDefault();if(task.trim()){addTask(id,task);setTask("");}}} className="flex gap-2 mt-5"><input aria-label="New checklist item" placeholder="Add a task or needed part" maxLength={160} value={task} onChange={e=>setTask(e.target.value)} className="filter min-w-0 flex-1"/><Button type="submit" disabled={!task.trim()} className="!px-3 !py-2" aria-label="Add checklist item"><Icon name="plus"/></Button></form>{checklist.length>0 && done===checklist.length && <p className="text-xs font-semibold text-brand-blue mt-4" role="status">All tasks done</p>}</aside></div></main></>;
+import { NavBar } from "@/components/Shell";
+import { ButtonLink, EmptyState } from "@/components/ui";
+import { getActiveParts, getTasks, getVehicle, getVehicleDocuments } from "@/lib/data";
+import { ProjectDetail } from "./ProjectDetail";
+
+export default async function CarPage({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ files?: string }>;
+}) {
+  const [{ id }, { files }] = await Promise.all([params, searchParams]);
+  const [found, parts, tasks, documents] = await Promise.all([getVehicle(id), getActiveParts(id), getTasks(id), getVehicleDocuments(id)]);
+
+  if (!found) {
+    return <>
+      <NavBar back={{ href: "/cars", label: "Projects" }} />
+      <main className="page page-bottom pt-6">
+        <div className="card"><EmptyState icon="car" title="Project not found" description="It may have been removed." action={<ButtonLink href="/cars" variant="secondary">Back to projects</ButtonLink>} /></div>
+      </main>
+    </>;
+  }
+  const notice = files === "failed" ? "Project created, but some files didn't upload" : "";
+  return <ProjectDetail vehicle={found.vehicle} photo={found.photo} documents={documents} parts={parts} tasks={tasks} notice={notice} />;
 }

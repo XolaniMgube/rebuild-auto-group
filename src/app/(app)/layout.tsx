@@ -1,30 +1,41 @@
-"use client";
-
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useStore } from "@/lib/store";
+import { redirect } from "next/navigation";
+import { AuthCard } from "@/components/AuthCard";
+import { SessionProvider } from "@/components/Session";
 import { BottomNav, Sidebar } from "@/components/Shell";
+import { Button, ConfirmProvider } from "@/components/ui";
+import { getWorkspaceCounts } from "@/lib/data";
+import { createClient } from "@/lib/supabase/server";
 
-// Demo-grade gate: client-side only. Real auth verifies the Supabase
-// session server-side in each route handler before any data moves.
+// Checked again here rather than trusting middleware alone.
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  if (!data?.claims) redirect("/login");
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const signedIn = useStore((s) => s.currentUserId !== null);
+  const [{ data: profile, error }, counts] = await Promise.all([
+    supabase.from("profiles").select("name, email, role").eq("id", data.claims.sub).maybeSingle(),
+    getWorkspaceCounts(),
+  ]);
+  // A failed lookup is not the same as "no access"; let the error screen offer a retry.
+  if (error) throw new Error(error.message);
 
-  useEffect(() => {
-    if (!signedIn) router.replace("/login");
-  }, [signedIn, router]);
-
-  if (!signedIn) return null;
+  if (!profile?.role) {
+    return (
+      <AuthCard title="Waiting for access" description={<>An owner needs to give <span className="font-semibold text-ink">{profile?.email}</span> access.</>}>
+        <form action="/auth/signout" method="post">
+          <Button type="submit" variant="secondary" block>Sign out</Button>
+        </form>
+      </AuthCard>
+    );
+  }
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-paper">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {children}
+    <SessionProvider session={{ name: profile.name || profile.email, email: profile.email, role: profile.role }} counts={counts}>
+      <ConfirmProvider>
+        <Sidebar />
+        <div className="min-h-dvh lg:pl-sidebar">{children}</div>
         <BottomNav />
-      </div>
-    </div>
+      </ConfirmProvider>
+    </SessionProvider>
   );
 }

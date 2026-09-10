@@ -1,16 +1,13 @@
-// Mirrors prisma/schema.prisma. When Supabase goes in, these
-// get replaced by the generated Prisma types.
+import type { Database } from "./database.types";
 
-export type Role = "OWNER" | "STAFF";
-export type Condition = "GOOD" | "FAIR" | "SPARES_ONLY";
-export type PartStatus = "DRAFT" | "IN_STOCK" | "RESERVED" | "SOLD" | "RETURNED";
+// App-side shapes. The database schema lives in supabase/migrations and its
+// generated types in database.types.ts; lib/data.ts maps between the two.
 
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  role: Role;
-}
+type Enums = Database["public"]["Enums"];
+
+export type Role = Enums["app_role"];
+export type Condition = Enums["part_condition"];
+export type PartStatus = Enums["part_status"];
 
 export interface Vehicle {
   id: string;
@@ -20,11 +17,18 @@ export interface Vehicle {
   vin: string | null;
   registration: string | null;
   color: string | null;
-  purchasePrice: number;
-  purchaseDate: string;
   notes: string | null;
-  addedById: string;
   createdAt: string;
+}
+
+/** Signed Storage URLs for a photo and its small preview copy. */
+export interface SignedPhoto {
+  url: string;
+  thumbUrl: string;
+}
+
+export interface PartPhoto extends SignedPhoto {
+  id: string;
 }
 
 export interface Part {
@@ -34,50 +38,66 @@ export interface Part {
   serialNumber: string | null;
   condition: Condition;
   description: string | null;
-  costPrice: number | null;
-  sellingPrice: number;
   quantity: number;
   location: string | null;
   status: PartStatus;
-  images: string[]; // data URLs in the demo, storage URLs later
+  images: PartPhoto[]; // cover photo first
   vehicleId: string | null;
-  addedById: string;
   createdAt: string;
-  updatedAt: string;
 }
 
-export interface SaleItem {
+export interface VehicleDocument {
   id: string;
-  saleId: string;
-  partId: string;
-  quantity: number;
-  priceAtSale: number;
-  costAtSale: number | null;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  url: string | null;
+  thumbUrl: string | null;
+  createdAt: string;
 }
 
-export interface Sale {
+export interface ProjectTask {
   id: string;
-  saleDate: string;
-  customerName: string | null;
-  customerPhone: string | null;
-  total: number;
-  soldById: string;
-  notes: string | null;
-  items: SaleItem[];
+  vehicleId: string;
+  name: string;
+  done: boolean;
 }
+
+export interface ProjectSummary {
+  vehicle: Vehicle;
+  photo: string | null; // preview URL
+  partCount: number;
+  tasksDone: number;
+  tasksTotal: number;
+}
+
+/** Live counts shown in the sidebar. */
+export interface WorkspaceCounts {
+  inStock: number;
+  onHold: number;
+  projects: number;
+}
+
+export const MAX_PART_PHOTOS = 4;
+export const MAX_CAR_DOCUMENTS = 5;
+export const MAX_DOCUMENT_MB = 10;
+
+// Parts that are still on the shelf. Sold and returned parts stay in the
+// database for sales history but drop out of lists.
+export const ACTIVE_STATUSES: PartStatus[] = ["in_stock", "reserved"];
 
 export const CONDITION_LABEL: Record<Condition, string> = {
-  GOOD: "Good",
-  FAIR: "Fair",
-  SPARES_ONLY: "Spares",
+  good: "Good",
+  fair: "Fair",
+  spares_only: "Spares",
 };
+
+export const CONDITION_OPTIONS = (Object.keys(CONDITION_LABEL) as Condition[]).map(value => ({ value, label: CONDITION_LABEL[value] }));
 
 export const STATUS_LABEL: Record<PartStatus, string> = {
-  DRAFT: "Needs details",
-  IN_STOCK: "In stock",
-  RESERVED: "On hold",
-  SOLD: "Sold",
-  RETURNED: "Returned",
+  draft: "Needs details",
+  in_stock: "In stock",
+  reserved: "On hold",
+  sold: "Sold",
+  returned: "Returned",
 };
-
-export interface ProjectTask { id: string; vehicleId: string; name: string; done: boolean; }
