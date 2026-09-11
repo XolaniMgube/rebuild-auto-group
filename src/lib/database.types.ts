@@ -83,7 +83,11 @@ export type Database = {
           condition: Database["public"]["Enums"]["part_condition"]
           cost_price: number | null
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
           description: string | null
+          held_at: string | null
+          held_by: string | null
           id: string
           location: string | null
           name: string
@@ -100,7 +104,11 @@ export type Database = {
           condition?: Database["public"]["Enums"]["part_condition"]
           cost_price?: number | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           description?: string | null
+          held_at?: string | null
+          held_by?: string | null
           id?: string
           location?: string | null
           name: string
@@ -117,7 +125,11 @@ export type Database = {
           condition?: Database["public"]["Enums"]["part_condition"]
           cost_price?: number | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           description?: string | null
+          held_at?: string | null
+          held_by?: string | null
           id?: string
           location?: string | null
           name?: string
@@ -132,6 +144,20 @@ export type Database = {
           {
             foreignKeyName: "parts_added_by_fkey"
             columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_held_by_fkey"
+            columns: ["held_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -407,6 +433,8 @@ export type Database = {
           added_by: string | null
           color: string | null
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
           id: string
           make: string
           model: string
@@ -423,6 +451,8 @@ export type Database = {
           added_by?: string | null
           color?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           id?: string
           make: string
           model: string
@@ -439,6 +469,8 @@ export type Database = {
           added_by?: string | null
           color?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           id?: string
           make?: string
           model?: string
@@ -459,6 +491,13 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "vehicles_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
     }
@@ -466,6 +505,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      bin_part: {
+        Args: { target: string; typed_name: string }
+        Returns: undefined
+      }
+      bin_vehicle: {
+        Args: { keep_parts: boolean; target: string; typed_name: string }
+        Returns: undefined
+      }
       complete_sale: {
         Args: {
           customer_name?: string
@@ -475,6 +522,8 @@ export type Database = {
         }
         Returns: string
       }
+      restore_part: { Args: { target: string }; Returns: undefined }
+      restore_vehicle: { Args: { target: string }; Returns: undefined }
       set_member_role: {
         Args: {
           new_role: Database["public"]["Enums"]["app_role"]

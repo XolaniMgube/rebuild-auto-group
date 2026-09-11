@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { AuthCard, FormMessage } from "@/components/AuthCard";
-import { Button, Field, Input } from "@/components/ui";
+import { Button, Field, PasswordInput } from "@/components/ui";
 import { updatePassword } from "./actions";
 
 export default function UpdatePasswordPage() {
@@ -10,15 +10,13 @@ export default function UpdatePasswordPage() {
 
   return (
     <AuthCard title="Choose a password">
-      <form action={action} className="space-y-5">
-        <div className="card space-y-4 p-5">
-          <Field label="New password" hint="At least 10 characters, with upper- and lowercase letters and a number.">
-            <Input name="password" type="password" autoComplete="new-password" minLength={10} required />
-          </Field>
-          <Field label="Confirm password">
-            <Input name="confirm" type="password" autoComplete="new-password" minLength={10} required />
-          </Field>
-        </div>
+      <form action={action} className="space-y-4">
+        <Field label="New password" hint="At least 10 characters, with upper- and lowercase letters and a number.">
+          <PasswordInput name="password" autoComplete="new-password" minLength={10} required />
+        </Field>
+        <Field label="Confirm password">
+          <PasswordInput name="confirm" autoComplete="new-password" minLength={10} required />
+        </Field>
         <FormMessage error={state?.error} />
         <Button type="submit" block loading={pending}>{pending ? "Saving…" : "Save password"}</Button>
       </form>

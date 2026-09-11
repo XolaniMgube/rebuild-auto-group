@@ -81,6 +81,17 @@
   .bar-surface { background: rgb(var(--surface) / 0.82); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
   .bar-canvas { background: rgb(var(--canvas) / 0.86); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
 
+  /* Brand backdrop for the sign-in screens: navy with soft light, a red glow and a faint grid. */
+  .auth-hero {
+    background-color: rgb(var(--brand-navy));
+    background-image:
+      radial-gradient(110% 80% at 0% 0%, rgb(255 255 255 / 0.16), transparent 55%),
+      radial-gradient(80% 60% at 100% 100%, rgb(var(--brand-red) / 0.42), transparent 60%),
+      linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+    background-size: auto, auto, 32px 32px, 32px 32px;
+  }
+
   /* Surfaces */
   .card { @apply rounded-card border border-line/70 bg-surface shadow-card; }
   .card-link { @apply card block transition duration-base ease-ios active:scale-[0.985] lg:hover:shadow-raised; }

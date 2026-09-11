@@ -1,25 +1,30 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { MediaPicker, RemoveButton } from "@/components/Attachments";
+import { DeleteSheet, type Stake } from "@/components/DeleteSheet";
 import { Icon } from "@/components/Icon";
-import { partIcon } from "@/components/PartThumb";
+import { partKind } from "@/components/PartThumb";
 import { NavBar } from "@/components/Shell";
 import {
   Button, ButtonLink, ConditionBadge, DetailList, DetailRow, DisclosureCard, Field, FieldSet, FormSection, IconButton, InlineError, Input,
   MoneyInput, Notice, RowLink, SectionHeading, SegmentedControl, Select, Sheet, Spinner, StatusBadge, Textarea, useConfirm,
 } from "@/components/ui";
-import { removePartImage, sellPart, setPartHold, undoSale, updatePart } from "@/lib/actions";
+import { binPart, removePartImage, sellPart, setPartHold, undoSale, updatePart } from "@/lib/actions";
 import { discardPreview, prepareAll, preparePhoto } from "@/lib/files";
-import { carName, longDate, parseRands, rands, shortDate } from "@/lib/format";
+import { carName, longDate, parseRands, plural, rands, shortDate, timeAgo } from "@/lib/format";
 import { ACTIVE_STATUSES, CONDITION_LABEL, CONDITION_OPTIONS, MAX_PART_PHOTOS, type Part, type SoldItem, type Vehicle } from "@/lib/types";
 
-export function PartDetail({ part, vehicles, sales, notice }: { part: Part; vehicles: Vehicle[]; sales: SoldItem[] | null; notice: string }) {
+export function PartDetail({ part, vehicles, sales, canDelete, notice }: { part: Part; vehicles: Vehicle[]; sales: SoldItem[] | null; canDelete: boolean; notice: string }) {
+  const router = useRouter();
   const confirm = useConfirm();
   const [shot, setShot] = useState(0);
   const [editing, setEditing] = useState(false);
   const [selling, setSelling] = useState(false);
   const [sellSheet, setSellSheet] = useState(0);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteSheet, setDeleteSheet] = useState(0);
   const [undoing, setUndoing] = useState<string | null>(null);
   const [message, setMessage] = useState(notice);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +34,17 @@ export function PartDetail({ part, vehicles, sales, notice }: { part: Part; vehi
   const vehicle = vehicles.find(v => v.id === part.vehicleId);
   const active = ACTIVE_STATUSES.includes(part.status);
   const photo = part.images[Math.min(shot, part.images.length - 1)];
+  const kind = partKind(part.name);
+
+  const stakes: Stake[] = [
+    { icon: "tag", label: "Asking price", value: part.price > 0 ? rands(part.price) : "Not priced" },
+    { icon: "image", label: "Photos", value: part.images.length },
+    { icon: "car", label: "Project", value: vehicle ? carName(vehicle) : "Unassigned" },
+    ...(part.location ? [{ icon: "pin", label: "Location", value: part.location }] : []),
+  ];
+  const deleteBlocked = sales?.length
+    ? `This part has ${plural(sales.length, "sale")} recorded, so it stays for the records. Deleting it would take those sales out of ${vehicle ? "the project's" : "your"} money figures.`
+    : null;
 
   function toggleHold() {
     const held = part.status === "reserved";
@@ -102,7 +118,7 @@ export function PartDetail({ part, vehicles, sales, notice }: { part: Part; vehi
             {photo
               // eslint-disable-next-line @next/next/no-img-element
               ? <img src={photo.url} alt={part.name} className="aspect-[4/3] w-full bg-subtle object-contain" />
-              : <div className="grid h-40 w-full place-items-center bg-subtle text-tertiary sm:h-52 lg:h-72"><Icon name={partIcon(part.name)} className="h-12 w-12" /></div>}
+              : <div className={`grid h-40 w-full place-items-center sm:h-52 lg:h-72 ${kind.tone}`}><Icon name={kind.icon} className="h-12 w-12" /></div>}
             <div className="border-t border-separator p-3">
               <div className="flex flex-wrap items-center gap-3">
                 {part.images.map((img, i) => <div key={img.id} className="relative">
@@ -132,10 +148,13 @@ export function PartDetail({ part, vehicles, sales, notice }: { part: Part; vehi
                   <h1 className="break-words text-title">{part.name}</h1>
                   <p className="mt-1 text-body text-secondary">{[vehicle ? carName(vehicle) : "Unassigned stock", part.brand].filter(Boolean).join(" · ")}</p>
                   <div className="mt-3 flex flex-wrap gap-2"><ConditionBadge condition={part.condition} /><StatusBadge status={part.status} /></div>
+                  {part.status === "reserved" && part.heldBy && <p suppressHydrationWarning className="mt-2 flex items-center gap-1.5 text-meta font-medium text-warning">
+                    <Icon name="clock" className="h-4 w-4 shrink-0" />Put on hold by {part.heldBy}{part.heldAt ? `, ${timeAgo(part.heldAt).toLowerCase()}` : ""}
+                  </p>}
                   <p className="mt-4 flex items-baseline gap-2">
                     {part.price > 0
                       ? <><span className="text-[30px] font-bold leading-none tracking-[-0.035em] tabular-nums">{rands(part.price)}</span>
-                        <span className="text-meta text-secondary">asking{part.quantity > 1 ? " each" : ""}</span></>
+                        <span className="text-meta text-secondary">asking</span></>
                       : <span className="text-body text-tertiary">No asking price yet</span>}
                   </p>
                 </section>
@@ -157,10 +176,10 @@ export function PartDetail({ part, vehicles, sales, notice }: { part: Part; vehi
                       <div className="min-w-0 flex-1">
                         <p className="text-body font-semibold tabular-nums">
                           {rands(sale.price * sale.quantity)}
-                          {sale.quantity > 1 && <span className="font-normal text-secondary"> · {sale.quantity} × {rands(sale.price)}</span>}
                         </p>
                         <p className="truncate text-meta text-secondary">
-                          {shortDate(sale.soldAt)}{sale.customerName ? ` · ${sale.customerName}` : ""}
+                          {shortDate(sale.soldAt)}
+                          {sale.soldBy ? ` · Sold by ${sale.soldBy}${sale.customerName ? ` to ${sale.customerName}` : ""}` : sale.customerName ? ` · ${sale.customerName}` : ""}
                           {discounted && <span className="text-warning"> · asked {rands(sale.listPrice!)}</span>}
                         </p>
                       </div>
@@ -175,7 +194,6 @@ export function PartDetail({ part, vehicles, sales, notice }: { part: Part; vehi
                   <SectionHeading variant="group" title="Inventory" />
                   <DetailList>
                     <DetailRow icon="pin" label="Location" value={part.location ?? "Not set"} muted={!part.location} />
-                    <DetailRow icon="box" label="Quantity" value={part.quantity} />
                   </DetailList>
                 </div>
 
@@ -204,6 +222,7 @@ export function PartDetail({ part, vehicles, sales, notice }: { part: Part; vehi
                 </div>
 
                 <ButtonLink href={`/add${vehicle ? `?car=${vehicle.id}` : ""}`} variant="plain" block><Icon name="plus" />Add another part</ButtonLink>
+                {canDelete && <Button variant="danger" block onClick={() => { setDeleteSheet(n => n + 1); setDeleting(true); }}><Icon name="trash" />Delete part</Button>}
               </>}
           </div>
         </div>
@@ -212,32 +231,36 @@ export function PartDetail({ part, vehicles, sales, notice }: { part: Part; vehi
 
     {active && <SellSheet key={sellSheet} part={part} open={selling} onClose={() => setSelling(false)}
       onSold={text => { setSelling(false); setMessage(text); }} />}
+
+    {canDelete && <DeleteSheet key={`delete-${deleteSheet}`} open={deleting} onClose={() => setDeleting(false)}
+      title="Delete this part?" description={part.name} name={part.name} stakes={stakes} blocked={deleteBlocked} confirmLabel="Delete part"
+      onConfirm={async typed => {
+        const result = await binPart(part.id, typed);
+        if (!result.error) router.push(vehicle ? `/cars/${vehicle.id}?binned=part` : "/search?binned=part");
+        return result;
+      }} />}
   </>;
 }
 
 /** Records what the customer actually paid, which may be less than the asking price. */
 function SellSheet({ part, open, onClose, onSold }: { part: Part; open: boolean; onClose: () => void; onSold: (message: string) => void }) {
   const [price, setPrice] = useState(part.price > 0 ? String(part.price) : "");
-  const [quantity, setQuantity] = useState("1");
   const [customer, setCustomer] = useState("");
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
-  const several = part.quantity > 1;
   const amount = parseRands(price);
   const discount = part.price > 0 && amount !== null && !Number.isNaN(amount) && amount < part.price ? part.price - amount : 0;
   const hint = part.price > 0 ? (discount > 0 ? `${rands(discount)} off the asking price of ${rands(part.price)}` : `Asking ${rands(part.price)}`) : undefined;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    const count = Number(quantity);
     if (amount === null || Number.isNaN(amount)) { setError("Enter what the customer paid, e.g. 300."); return; }
-    if (!Number.isInteger(count) || count < 1 || count > part.quantity) { setError(`Quantity must be from 1 to ${part.quantity}.`); return; }
     setError(null);
     startSaving(async () => {
-      const result = await sellPart(part.id, { price: amount, quantity: count, customerName: customer, customerPhone: phone });
+      const result = await sellPart(part.id, { price: amount, customerName: customer, customerPhone: phone });
       if (result.error) setError(result.error);
-      else onSold(`Sold for ${rands(amount * count)}`);
+      else onSold(`Sold for ${rands(amount)}`);
     });
   }
 
@@ -247,14 +270,9 @@ function SellSheet({ part, open, onClose, onSold }: { part: Part; open: boolean;
       <Button type="submit" form="sell-part" block className="sm:w-auto" loading={saving}>Record sale</Button>
     </>}>
     <form id="sell-part" onSubmit={submit} className="space-y-4">
-      <div className={several ? "grid grid-cols-[minmax(0,1fr)_104px] gap-3" : ""}>
-        <Field label={several ? "Sold for, each" : "Sold for"} hint={hint}>
-          <MoneyInput value={price} onChange={e => { setPrice(e.target.value); setError(null); }} placeholder="0" />
-        </Field>
-        {several && <Field label="Quantity">
-          <Input type="number" inputMode="numeric" min={1} max={part.quantity} step={1} value={quantity} onChange={e => { setQuantity(e.target.value); setError(null); }} />
-        </Field>}
-      </div>
+      <Field label="Sold for" hint={hint}>
+        <MoneyInput value={price} onChange={e => { setPrice(e.target.value); setError(null); }} placeholder="0" />
+      </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Customer"><Input maxLength={120} autoComplete="off" value={customer} onChange={e => setCustomer(e.target.value)} placeholder="Optional" /></Field>
         <Field label="Phone"><Input type="tel" inputMode="tel" maxLength={30} autoComplete="off" value={phone} onChange={e => setPhone(e.target.value)} placeholder="Optional" /></Field>
@@ -270,7 +288,6 @@ function EditPart({ part, vehicles, onDone, onCancel }: { part: Part; vehicles: 
   const [location, setLocation] = useState(part.location ?? "");
   const [condition, setCondition] = useState(part.condition);
   const [notes, setNotes] = useState(part.description ?? "");
-  const [quantity, setQuantity] = useState(String(part.quantity));
   const [price, setPrice] = useState(part.price > 0 ? String(part.price) : "");
   const [brand, setBrand] = useState(part.brand ?? "");
   const [serial, setSerial] = useState(part.serialNumber ?? "");
@@ -280,12 +297,11 @@ function EditPart({ part, vehicles, onDone, onCancel }: { part: Part; vehicles: 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setError("Give the part a name so it can be found later."); return; }
-    if (!Number.isInteger(Number(quantity)) || Number(quantity) < 1) { setError("Quantity must be a whole number of at least 1."); return; }
     const askingPrice = parseRands(price);
     if (Number.isNaN(askingPrice)) { setError("Enter the price in rands, e.g. 400."); return; }
     setError(null);
     startSaving(async () => {
-      const result = await updatePart(part.id, { name, vehicleId: vehicleId || null, location, condition, description: notes, quantity: Number(quantity), brand, serialNumber: serial, price: askingPrice });
+      const result = await updatePart(part.id, { name, vehicleId: vehicleId || null, location, condition, description: notes, brand, serialNumber: serial, price: askingPrice });
       if (result.error) setError(result.error);
       else onDone();
     });
@@ -301,10 +317,7 @@ function EditPart({ part, vehicles, onDone, onCancel }: { part: Part; vehicles: 
         </Select>
       </Field>
       <FieldSet legend="Condition"><SegmentedControl label="Condition" options={CONDITION_OPTIONS} value={condition} onChange={setCondition} /></FieldSet>
-      <div className="grid grid-cols-[minmax(0,1fr)_104px] gap-3">
-        <Field label="Asking price"><MoneyInput value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. 400" /></Field>
-        <Field label="Quantity"><Input type="number" inputMode="numeric" min={1} max={9999} step={1} required value={quantity} onChange={e => setQuantity(e.target.value)} /></Field>
-      </div>
+      <Field label="Asking price"><MoneyInput value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. 400" /></Field>
       <Field label="Location"><Input maxLength={60} value={location} onChange={e => setLocation(e.target.value)} placeholder="Rack B3" /></Field>
     </FormSection>
     <DisclosureCard title="More details">

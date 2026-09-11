@@ -43,6 +43,8 @@ export interface Part {
   price: number; // asking price in rands; 0 means not priced yet
   location: string | null;
   status: PartStatus;
+  heldBy: string | null; // who put it on hold, while it's on hold
+  heldAt: string | null;
   images: PartPhoto[]; // cover photo first
   vehicleId: string | null;
   createdAt: string;
@@ -103,6 +105,7 @@ export interface SoldItem {
   price: number;
   listPrice: number | null;
   soldAt: string;
+  soldBy: string | null;
   customerName: string | null;
 }
 
@@ -117,6 +120,35 @@ export interface WorkspaceCounts {
   onHold: number;
   projects: number;
 }
+
+/** A project in Recently deleted. partCount counts the parts binned along with it. */
+export interface BinnedProject {
+  id: string;
+  make: string;
+  model: string;
+  year: number | null;
+  photo: string | null; // preview URL
+  deletedAt: string;
+  deletedBy: string | null;
+  partCount: number;
+  documentCount: number;
+}
+
+/** A part binned on its own. carInBin means its project has to be restored first. */
+export interface BinnedPart {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  photo: string | null; // preview URL
+  photoCount: number;
+  deletedAt: string;
+  deletedBy: string | null;
+  car: { make: string; model: string; year: number | null } | null;
+  carInBin: boolean;
+}
+
+export const BIN_DAYS = 30; // how long deleted parts and projects can be restored
 
 export const MAX_PART_PHOTOS = 4;
 export const MAX_CAR_DOCUMENTS = 5;

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { PartCard } from "@/components/PartCard";
 import { PageHeader } from "@/components/Shell";
-import { Button, ButtonLink, EmptyState, Field, FilterButton, FilterTiles, SearchBar, SectionHeading, Select, Sheet } from "@/components/ui";
+import { Button, ButtonLink, EmptyState, Field, FilterButton, FilterTiles, Notice, SearchBar, SectionHeading, Select, Sheet } from "@/components/ui";
 import { carName, plural } from "@/lib/format";
 import { CONDITION_OPTIONS, type Part, type Vehicle } from "@/lib/types";
 
@@ -18,6 +19,7 @@ export function Inventory({ parts, vehicles }: { parts: Part[]; vehicles: Vehicl
   const [status, setStatus] = useState(params.get("status") ?? "");
   const [sort, setSort] = useState("recent");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [binned, setBinned] = useState(params.get("binned") === "part");
   const filterCount = Number(Boolean(condition)) + Number(Boolean(vehicleId)) + Number(sort !== "recent");
   const filtering = Boolean(query || vehicleId || condition || status || sort !== "recent");
   const byId = useMemo(() => new Map(vehicles.map(v => [v.id, v])), [vehicles]);
@@ -64,6 +66,9 @@ export function Inventory({ parts, vehicles }: { parts: Part[]; vehicles: Vehicl
     </div>
 
     <main className="page page-bottom space-y-6 pt-2">
+      {binned && <Notice onDismiss={() => setBinned(false)}>
+        Part moved to Recently deleted. <Link href="/deleted" className="font-semibold underline underline-offset-2">View</Link>
+      </Notice>}
       <FilterTiles label="Availability" value={status} onChange={setStatus} options={[
         { value: "", label: "All parts", count: parts.length, tone: "navy" },
         { value: "in_stock", label: "In stock", count: parts.filter(p => p.status === "in_stock").length, tone: "success" },

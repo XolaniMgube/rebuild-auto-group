@@ -107,9 +107,10 @@ export function ProjectMoney({ vehicle, money, stockValue, onMessage }: { vehicl
       {money.sales.length > 0
         ? <ul className="mt-2 divide-y divide-separator">{money.sales.map(sale => <li key={sale.id} className="flex items-center gap-3 px-4 py-2.5">
           <Link href={`/parts/${sale.partId}`} className="min-w-0 flex-1 py-1">
-            <p className="truncate text-body font-medium">{sale.partName}{sale.quantity > 1 && <span className="font-normal text-secondary"> ×{sale.quantity}</span>}</p>
+            <p className="truncate text-body font-medium">{sale.partName}</p>
             <p className="truncate text-meta text-secondary">
-              {shortDate(sale.soldAt)}{sale.customerName ? ` · ${sale.customerName}` : ""}
+              {shortDate(sale.soldAt)}
+              {sale.soldBy ? ` · Sold by ${sale.soldBy}${sale.customerName ? ` to ${sale.customerName}` : ""}` : sale.customerName ? ` · ${sale.customerName}` : ""}
               {sale.listPrice != null && sale.listPrice > sale.price && <span className="text-warning"> · asked {rands(sale.listPrice)}</span>}
             </p>
           </Link>

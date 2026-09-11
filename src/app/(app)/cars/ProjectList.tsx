@@ -1,14 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ProjectCard } from "@/components/ProjectCard";
 import { PageHeader } from "@/components/Shell";
-import { ButtonLink, EmptyState, IconLink, SearchBar, SectionHeading, StatTiles } from "@/components/ui";
+import { ButtonLink, EmptyState, IconLink, Notice, SearchBar, SectionHeading, StatTiles } from "@/components/ui";
 import { carName, plural } from "@/lib/format";
 import type { ProjectSummary } from "@/lib/types";
 
 export function ProjectList({ projects }: { projects: ProjectSummary[] }) {
+  const params = useSearchParams();
   const [query, setQuery] = useState("");
+  const [binned, setBinned] = useState(params.get("binned") === "project");
   const results = projects.filter(({ vehicle }) => carName(vehicle).toLowerCase().includes(query.trim().toLowerCase()));
   const partsOnCars = projects.reduce((sum, p) => sum + p.partCount, 0);
   const openTasks = projects.reduce((sum, p) => sum + (p.tasksTotal - p.tasksDone), 0);
@@ -24,6 +28,9 @@ export function ProjectList({ projects }: { projects: ProjectSummary[] }) {
     </div>
 
     <main className="page page-bottom space-y-6 pt-2">
+      {binned && <Notice onDismiss={() => setBinned(false)}>
+        Project moved to Recently deleted. <Link href="/deleted" className="font-semibold underline underline-offset-2">View</Link>
+      </Notice>}
       <StatTiles items={[
         { label: "Projects", value: projects.length, tone: "navy" },
         { label: "Parts", value: partsOnCars, tone: "success" },

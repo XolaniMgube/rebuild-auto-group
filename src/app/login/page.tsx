@@ -13,7 +13,7 @@ export default async function LoginPage({
   const { next, error } = await searchParams;
 
   return (
-    <AuthCard title="Sign in">
+    <AuthCard title="Sign in" description="Use the email address your invite was sent to.">
       <LoginForm next={next} notice={error ? NOTICES[error] : undefined} />
     </AuthCard>
   );

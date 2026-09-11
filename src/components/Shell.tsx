@@ -68,6 +68,7 @@ function SidebarNav() {
   const path = usePathname();
   const params = useSearchParams();
   const counts = useCounts();
+  const owner = useSession().role === "owner";
   const status = path.startsWith("/search") ? params.get("status") : null;
 
   return <>
@@ -76,6 +77,7 @@ function SidebarNav() {
         <NavItem href="/search" icon="box" label="Parts" count={counts ? counts.inStock + counts.onHold : undefined}
           active={(path.startsWith("/search") && !status) || path.startsWith("/parts/")} />
         <NavItem href="/cars" icon="car" label="Projects" count={counts?.projects} active={path.startsWith("/cars")} />
+        {owner && <NavItem href="/deleted" icon="trash" label="Recently deleted" active={path.startsWith("/deleted")} />}
       </nav>
     </SidebarSection>
     <SidebarSection label="Quick filters">
@@ -217,6 +219,11 @@ function AccountButton() {
         </div>
         <Badge tone="info">{session.role === "owner" ? "Owner" : "Staff"}</Badge>
       </div>
+      {session.role === "owner" && <Link href="/deleted" onClick={() => setOpen(false)} className="card-link mt-6 flex min-h-14 items-center gap-3.5 px-4">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-red-tint text-brand-red"><Icon name="trash" className="h-[18px] w-[18px]" /></span>
+        <span className="flex-1 text-body font-semibold">Recently deleted</span>
+        <Icon name="chevron" className="h-4 w-4 text-tertiary" />
+      </Link>}
       <form action="/auth/signout" method="post" className="mt-6">
         <Button type="submit" variant="secondary" block><Icon name="logout" />Sign out</Button>
       </form>

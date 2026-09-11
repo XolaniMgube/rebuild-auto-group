@@ -2,12 +2,14 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { DeleteSheet, type Stake } from "@/components/DeleteSheet";
 import { Icon } from "@/components/Icon";
 import { PartCard } from "@/components/PartCard";
 import { NavBar } from "@/components/Shell";
-import { ButtonLink, CheckCircle, DetailList, DetailRow, EmptyState, IconButton, IconLink, InlineError, Input, Notice, SectionHeading, SegmentedControl } from "@/components/ui";
-import { addTask, removeTask, setTaskDone } from "@/lib/actions";
-import { carName } from "@/lib/format";
+import { Button, ButtonLink, CheckCircle, DetailList, DetailRow, EmptyState, IconButton, IconLink, InlineError, Input, Notice, SectionHeading, SegmentedControl } from "@/components/ui";
+import { addTask, binVehicle, removeTask, setTaskDone } from "@/lib/actions";
+import { carName, plural, rands } from "@/lib/format";
 import type { Part, ProjectMoney as Money, ProjectTask, SignedPhoto, Vehicle, VehicleDocument } from "@/lib/types";
 import { CarDocuments, CarPhotoControls } from "./CarFiles";
 import { ProjectMoney } from "./ProjectMoney";
@@ -25,13 +27,14 @@ function applyChange(tasks: ProjectTask[], change: TaskChange) {
 
 const headingLink = "-mr-1 inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 text-[15px] font-semibold text-brand-navy transition hover:bg-brand-navy-tint";
 
-export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, notice }: {
+export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, canDelete, notice }: {
   vehicle: Vehicle;
   photo: SignedPhoto | null;
   documents: VehicleDocument[];
   parts: Part[];
   tasks: ProjectTask[];
   money: Money | null;
+  canDelete: boolean;
   notice: string;
 }) {
   const id = vehicle.id;
@@ -43,6 +46,8 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState(notice);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteSheet, setDeleteSheet] = useState(0);
   const done = checklist.filter(t => t.done).length;
   const summary = [vehicle.year, vehicle.color].filter(Boolean).join(" · ");
   const facts = ([["Year", vehicle.year], ["Colour", vehicle.color], ["Registration", vehicle.registration], ["VIN", vehicle.vin]] as const)
@@ -163,11 +168,76 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
                   <p className="mt-1.5 whitespace-pre-line break-words text-body">{vehicle.notes}</p>
                 </div>}
                 <CarDocuments vehicleId={id} documents={documents} onMessage={setMessage} />
+                {canDelete && <Button variant="danger" block onClick={() => { setDeleteSheet(n => n + 1); setDeleting(true); }}><Icon name="trash" />Delete project</Button>}
               </div>
             </section>
           </div>
         </div>
       </div>
     </main>
+
+    {canDelete && <DeleteProjectSheet key={deleteSheet} vehicle={vehicle} photo={photo} documents={documents} parts={parts} tasks={tasks} money={money}
+      open={deleting} onClose={() => setDeleting(false)} />}
   </>;
+}
+
+const PART_CHOICES = [
+  { keep: false, title: "Delete them with the project", text: "They come back if you restore it." },
+  { keep: true, title: "Keep them as unassigned stock", text: "They stay searchable and for sale." },
+];
+
+function DeleteProjectSheet({ vehicle, photo, documents, parts, tasks, money, open, onClose }: {
+  vehicle: Vehicle;
+  photo: SignedPhoto | null;
+  documents: VehicleDocument[];
+  parts: Part[];
+  tasks: ProjectTask[];
+  money: Money | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [keepParts, setKeepParts] = useState(false);
+  const sales = money?.sales ?? [];
+  const expenses = money?.expenses ?? [];
+  // Parts with sales stay with the project either way; the rest follow the choice below.
+  const soldIds = new Set(sales.map(sale => sale.partId));
+  const unsold = parts.filter(part => !soldIds.has(part.id));
+  const unsoldValue = unsold.reduce((sum, part) => sum + part.price * part.quantity, 0);
+  const revenue = sales.reduce((sum, sale) => sum + sale.price * sale.quantity, 0);
+  const spent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+
+  const stakes: Stake[] = [
+    { icon: "box", label: keepParts ? "Parts moved to unassigned stock" : "Parts deleted with it", value: unsold.length },
+    ...(!keepParts && unsoldValue > 0 ? [{ icon: "tag", label: "Their asking value", value: rands(unsoldValue) }] : []),
+    ...(sales.length ? [{ icon: "check-circle", label: "Sales on record", value: `${plural(sales.length, "sale")} · ${rands(revenue)}` }] : []),
+    ...(vehicle.purchasePrice > 0 ? [{ icon: "car", label: "Bought for", value: rands(vehicle.purchasePrice) }] : []),
+    ...(expenses.length ? [{ icon: "receipt", label: "Expenses", value: `${expenses.length} · ${rands(spent)}` }] : []),
+    { icon: "file", label: "Documents", value: documents.length },
+    ...(photo ? [{ icon: "image", label: "Car photo", value: 1 }] : []),
+    { icon: "checklist", label: "Checklist tasks", value: tasks.length },
+  ];
+
+  return <DeleteSheet open={open} onClose={onClose} title="Delete this project?" description={carName(vehicle)}
+    name={`${vehicle.make} ${vehicle.model}`} stakes={stakes} confirmLabel="Delete project"
+    onConfirm={async typed => {
+      const result = await binVehicle(vehicle.id, typed, keepParts);
+      if (!result.error) router.push("/cars?binned=project");
+      return result;
+    }}>
+    {unsold.length > 0 && <fieldset>
+      <legend className="mb-2 text-[13px] font-semibold text-ink">What happens to its {plural(unsold.length, "unsold part")}?</legend>
+      <div className="space-y-2">{PART_CHOICES.map(choice => {
+        const selected = keepParts === choice.keep;
+        return <label key={choice.title} className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition duration-fast ${selected ? "border-brand-navy/40 bg-brand-navy-tint/60" : "border-line hover:bg-subtle"}`}>
+          <input type="radio" name="project-parts" checked={selected} onChange={() => setKeepParts(choice.keep)} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-navy" />
+          <span className="min-w-0">
+            <span className="block text-body font-semibold">{choice.title}</span>
+            <span className="block text-meta text-secondary">{choice.text}</span>
+          </span>
+        </label>;
+      })}</div>
+    </fieldset>}
+    {sales.length > 0 && <p className="text-meta text-secondary">Sold parts stay with the project, so its sales figures come back if you restore it.</p>}
+  </DeleteSheet>;
 }

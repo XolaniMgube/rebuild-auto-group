@@ -4,6 +4,9 @@ import { isUuid, thumbPathFor } from "./ids";
 import { createClient } from "./supabase/server";
 import {
   ACTIVE_STATUSES,
+  BIN_DAYS,
+  type BinnedPart,
+  type BinnedProject,
   type ExpenseCategory,
   type Part,
   type ProjectMoney,
@@ -23,9 +26,9 @@ import {
 const VEHICLE_COLUMNS = "id, make, model, year, vin, registration, color, notes, purchase_price, created_at";
 const VEHICLE_WITH_PHOTO = "id, make, model, year, vin, registration, color, notes, purchase_price, created_at, photo_path";
 const PART_COLUMNS =
-  "id, name, brand, serial_number, condition, description, quantity, selling_price, location, status, vehicle_id, created_at, part_images(id, storage_path, position)";
+  "id, name, brand, serial_number, condition, description, quantity, selling_price, location, status, held_at, holder:profiles!parts_held_by_fkey(name, email), vehicle_id, created_at, part_images(id, storage_path, position)";
 const SALE_COLUMNS =
-  "id, quantity, price_at_sale, list_price_at_sale, sale:sales!inner(id, sale_date, customer_name), part:parts!inner(id, name, vehicle_id)";
+  "id, quantity, price_at_sale, list_price_at_sale, sale:sales!inner(id, sale_date, customer_name, seller:profiles!sales_sold_by_fkey(name, email)), part:parts!inner(id, name, vehicle_id)";
 const DOCUMENT_COLUMNS = "id, storage_path, file_name, content_type, size_bytes, created_at";
 
 const PAGE_SIZE = 1000; // the Data API's default row cap
@@ -34,18 +37,25 @@ const FILE_URL_SECONDS = 60 * 60;
 type Client = Awaited<ReturnType<typeof createClient>>;
 type Bucket = "part-images" | "vehicle-files";
 type VehicleRecord = Pick<Tables<"vehicles">, "id" | "make" | "model" | "year" | "vin" | "registration" | "color" | "notes" | "purchase_price" | "created_at">;
+type Person = { name: string | null; email: string } | null;
 type PartRecord = Pick<
   Tables<"parts">,
-  "id" | "name" | "brand" | "serial_number" | "condition" | "description" | "quantity" | "selling_price" | "location" | "status" | "vehicle_id" | "created_at"
-> & { part_images: Pick<Tables<"part_images">, "id" | "storage_path" | "position">[] };
+  "id" | "name" | "brand" | "serial_number" | "condition" | "description" | "quantity" | "selling_price" | "location" | "status" | "held_at" | "vehicle_id" | "created_at"
+> & { holder: Person; part_images: Pick<Tables<"part_images">, "id" | "storage_path" | "position">[] };
 type SaleRecord = {
   id: string;
   quantity: number;
   price_at_sale: number;
   list_price_at_sale: number | null;
-  sale: { id: string; sale_date: string; customer_name: string | null };
+  sale: { id: string; sale_date: string; customer_name: string | null; seller: Person };
   part: { id: string; name: string };
 };
+
+/** The name to show for a team member: their profile name, else the start of their email, capitalised ("mitch" → "Mitch"). */
+function personName(person: Person) {
+  const raw = person?.name?.trim() || person?.email.split("@")[0] || "";
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : null;
+}
 
 // Reads every page so long lists are never silently cut off at the row cap.
 async function allRows<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
@@ -83,6 +93,7 @@ function toSoldItem(row: SaleRecord): SoldItem {
     price: row.price_at_sale,
     listPrice: row.list_price_at_sale,
     soldAt: row.sale.sale_date,
+    soldBy: personName(row.sale.seller),
     customerName: row.sale.customer_name,
   };
 }
@@ -103,6 +114,8 @@ function toPart(row: PartRecord, photos: Map<string, SignedPhoto>, limit?: numbe
     price: row.selling_price,
     location: row.location,
     status: row.status,
+    heldBy: row.status === "reserved" ? personName(row.holder) : null,
+    heldAt: row.status === "reserved" ? row.held_at : null,
     images: sortedImages(row).slice(0, limit).flatMap((image) => {
       const photo = photos.get(image.storage_path);
       return photo ? [{ id: image.id, ...photo }] : [];
@@ -192,7 +205,7 @@ export async function getVehiclePartNames(vehicleId: string): Promise<string[]> 
   if (!isUuid(vehicleId)) return [];
   const supabase = await createClient();
   const rows = await allRows<{ name: string }>((from, to) =>
-    supabase.from("parts").select("name").eq("vehicle_id", vehicleId).order("id").range(from, to)
+    supabase.from("parts").select("name").eq("vehicle_id", vehicleId).is("deleted_at", null).order("id").range(from, to)
   );
   return rows.map(row => row.name);
 }
@@ -203,9 +216,9 @@ export async function getWorkspaceCounts(): Promise<WorkspaceCounts | null> {
     const supabase = await createClient();
     const head = { count: "exact", head: true } as const;
     const [inStock, onHold, projects] = await Promise.all([
-      supabase.from("parts").select("id", head).eq("status", "in_stock"),
-      supabase.from("parts").select("id", head).eq("status", "reserved"),
-      supabase.from("vehicles").select("id", head),
+      supabase.from("parts").select("id", head).eq("status", "in_stock").is("deleted_at", null),
+      supabase.from("parts").select("id", head).eq("status", "reserved").is("deleted_at", null),
+      supabase.from("vehicles").select("id", head).is("deleted_at", null),
     ]);
     if (inStock.error || onHold.error || projects.error) return null;
     return { inStock: inStock.count ?? 0, onHold: onHold.count ?? 0, projects: projects.count ?? 0 };
@@ -217,7 +230,7 @@ export async function getWorkspaceCounts(): Promise<WorkspaceCounts | null> {
 export async function getVehicles(): Promise<Vehicle[]> {
   const supabase = await createClient();
   const rows = await allRows<VehicleRecord>((from, to) =>
-    supabase.from("vehicles").select(VEHICLE_COLUMNS).order("created_at", { ascending: false }).order("id").range(from, to)
+    supabase.from("vehicles").select(VEHICLE_COLUMNS).is("deleted_at", null).order("created_at", { ascending: false }).order("id").range(from, to)
   );
   return rows.map(toVehicle);
 }
@@ -225,7 +238,7 @@ export async function getVehicles(): Promise<Vehicle[]> {
 export async function getVehicle(id: string): Promise<{ vehicle: Vehicle; photo: SignedPhoto | null } | null> {
   if (!isUuid(id)) return null;
   const supabase = await createClient();
-  const { data, error } = await supabase.from("vehicles").select(VEHICLE_WITH_PHOTO).eq("id", id).maybeSingle();
+  const { data, error } = await supabase.from("vehicles").select(VEHICLE_WITH_PHOTO).eq("id", id).is("deleted_at", null).maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return null;
   const photos = await signPhotos(supabase, "vehicle-files", data.photo_path ? [data.photo_path] : [], true);
@@ -266,7 +279,7 @@ export async function getActiveParts(vehicleId?: string): Promise<Part[]> {
   if (vehicleId !== undefined && !isUuid(vehicleId)) return [];
   const supabase = await createClient();
   const rows = await allRows<PartRecord>((from, to) => {
-    const query = supabase.from("parts").select(PART_COLUMNS).in("status", ACTIVE_STATUSES);
+    const query = supabase.from("parts").select(PART_COLUMNS).in("status", ACTIVE_STATUSES).is("deleted_at", null);
     return (vehicleId ? query.eq("vehicle_id", vehicleId) : query)
       .order("created_at", { ascending: false })
       .order("name") // parts added together from the strip list share a timestamp
@@ -282,7 +295,7 @@ export async function getActiveParts(vehicleId?: string): Promise<Part[]> {
 export async function getPart(id: string): Promise<Part | null> {
   if (!isUuid(id)) return null;
   const supabase = await createClient();
-  const { data, error } = await supabase.from("parts").select(PART_COLUMNS).eq("id", id).maybeSingle();
+  const { data, error } = await supabase.from("parts").select(PART_COLUMNS).eq("id", id).is("deleted_at", null).maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return null;
   const photos = await signPhotos(supabase, "part-images", data.part_images.map((image) => image.storage_path), true);
@@ -317,10 +330,10 @@ export async function getProjectSummaries(includeMoney = false): Promise<Project
     : null;
   const [vehicles, parts, tasks] = await Promise.all([
     allRows<VehicleRecord & { photo_path: string | null }>((from, to) =>
-      supabase.from("vehicles").select(VEHICLE_WITH_PHOTO).order("created_at", { ascending: false }).order("id").range(from, to)
+      supabase.from("vehicles").select(VEHICLE_WITH_PHOTO).is("deleted_at", null).order("created_at", { ascending: false }).order("id").range(from, to)
     ),
     allRows<{ vehicle_id: string | null }>((from, to) =>
-      supabase.from("parts").select("vehicle_id").in("status", ACTIVE_STATUSES).not("vehicle_id", "is", null).order("id").range(from, to)
+      supabase.from("parts").select("vehicle_id").in("status", ACTIVE_STATUSES).is("deleted_at", null).not("vehicle_id", "is", null).order("id").range(from, to)
     ),
     allRows<{ vehicle_id: string; done: boolean }>((from, to) =>
       supabase.from("project_tasks").select("vehicle_id, done").order("id").range(from, to)
@@ -358,4 +371,101 @@ export async function getProjectSummaries(includeMoney = false): Promise<Project
     tasksDone: taskCounts.get(row.id)?.done ?? 0,
     tasksTotal: taskCounts.get(row.id)?.total ?? 0,
   }));
+}
+
+type Deleter = { name: string | null; email: string } | null;
+type BinnedCarRecord = {
+  id: string;
+  make: string;
+  model: string;
+  year: number | null;
+  photo_path: string | null;
+  deleted_at: string | null;
+  deleter: Deleter;
+  documents: { count: number }[];
+};
+type BinnedPartRecord = {
+  id: string;
+  name: string;
+  selling_price: number;
+  quantity: number;
+  vehicle_id: string | null;
+  deleted_at: string | null;
+  deleter: Deleter;
+  vehicle: { make: string; model: string; year: number | null; deleted_at: string | null } | null;
+  part_images: { storage_path: string; position: number }[];
+};
+
+/**
+ * Everything in Recently deleted that hasn't expired. Parts binned along with a
+ * project are counted under it rather than listed. Owners only: staff get nothing back.
+ */
+export async function getRecentlyDeleted(): Promise<{ projects: BinnedProject[]; parts: BinnedPart[] }> {
+  const supabase = await createClient();
+  const cutoff = new Date(Date.now() - BIN_DAYS * 86_400_000).toISOString();
+  const [cars, parts] = await Promise.all([
+    allRows<BinnedCarRecord>((from, to) =>
+      supabase
+        .from("vehicles")
+        .select("id, make, model, year, photo_path, deleted_at, deleter:profiles!vehicles_deleted_by_fkey(name, email), documents:vehicle_documents(count)")
+        .gt("deleted_at", cutoff)
+        .order("deleted_at", { ascending: false })
+        .order("id")
+        .range(from, to)
+    ),
+    allRows<BinnedPartRecord>((from, to) =>
+      supabase
+        .from("parts")
+        .select("id, name, selling_price, quantity, vehicle_id, deleted_at, deleter:profiles!parts_deleted_by_fkey(name, email), vehicle:vehicles(make, model, year, deleted_at), part_images(storage_path, position)")
+        .gt("deleted_at", cutoff)
+        .order("deleted_at", { ascending: false })
+        .order("id")
+        .range(from, to)
+    ),
+  ]);
+
+  // A part went in with its car when it shares the car's timestamp.
+  const carStamps = new Map(cars.map((car) => [car.id, car.deleted_at]));
+  const withCar = (part: BinnedPartRecord) => part.vehicle_id !== null && carStamps.get(part.vehicle_id) === part.deleted_at;
+  const partCounts = new Map<string, number>();
+  for (const part of parts) {
+    if (withCar(part)) partCounts.set(part.vehicle_id!, (partCounts.get(part.vehicle_id!) ?? 0) + 1);
+  }
+  const loose = parts.filter((part) => !withCar(part));
+  const cover = (part: BinnedPartRecord) => [...part.part_images].sort((a, b) => a.position - b.position)[0]?.storage_path;
+
+  const [carPhotos, partPhotos] = await Promise.all([
+    signPhotos(supabase, "vehicle-files", cars.flatMap((car) => (car.photo_path ? [car.photo_path] : [])), false),
+    signPhotos(supabase, "part-images", loose.flatMap((part) => cover(part) ?? []), false),
+  ]);
+  const deleterName = (deleter: Deleter) => personName(deleter);
+
+  return {
+    projects: cars.map((car) => ({
+      id: car.id,
+      make: car.make,
+      model: car.model,
+      year: car.year,
+      photo: car.photo_path ? carPhotos.get(car.photo_path)?.thumbUrl ?? null : null,
+      deletedAt: car.deleted_at ?? "",
+      deletedBy: deleterName(car.deleter),
+      partCount: partCounts.get(car.id) ?? 0,
+      documentCount: car.documents[0]?.count ?? 0,
+    })),
+    parts: loose.map((part) => {
+      const path = cover(part);
+      return {
+        id: part.id,
+        name: part.name,
+        price: part.selling_price,
+        quantity: part.quantity,
+        photo: path ? partPhotos.get(path)?.thumbUrl ?? null : null,
+        photoCount: part.part_images.length,
+        deletedAt: part.deleted_at ?? "",
+        deletedBy: deleterName(part.deleter),
+        car: part.vehicle ? { make: part.vehicle.make, model: part.vehicle.model, year: part.vehicle.year } : null,
+        carInBin: Boolean(part.vehicle?.deleted_at),
+      };
+    }),
+  };
 }

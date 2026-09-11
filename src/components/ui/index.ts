@@ -7,4 +7,5 @@ export { ChipGroup, FilterButton, FilterTiles, SearchBar, SegmentedControl } fro
 export type { TileTone } from "./Controls";
 export { EmptyState, InlineError, Notice, Skeleton, Spinner } from "./Feedback";
 export { CheckCircle, Field, FieldSet, Input, MoneyInput, Select, Textarea } from "./Field";
+export { PasswordInput } from "./PasswordInput";
 export { ConfirmProvider, Sheet, useConfirm } from "./Sheet";

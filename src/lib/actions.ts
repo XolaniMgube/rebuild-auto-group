@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { isUuid, thumbPathFor } from "./ids";
 import { createClient } from "./supabase/server";
-import { MAX_CAR_DOCUMENTS, MAX_DOCUMENT_MB, MAX_PART_PHOTOS, type Condition } from "./types";
+import { BIN_DAYS, MAX_CAR_DOCUMENTS, MAX_DOCUMENT_MB, MAX_PART_PHOTOS, type Condition } from "./types";
 
 // Mutations run as the signed-in user, so row level security decides what is
 // allowed. Inputs are re-checked here because anyone can call an action
@@ -25,7 +25,6 @@ export type PartInput = {
   vehicleId: string | null;
   condition: Condition;
   location: string | null;
-  quantity: number;
   brand: string | null;
   serialNumber: string | null;
   description: string | null;
@@ -110,7 +109,6 @@ function partColumns(input: PartInput) {
     vehicle_id: input.vehicleId == null || input.vehicleId === "" ? null : uuid(input.vehicleId, "Car project"),
     condition: input.condition,
     location: optionalText(input.location, "Location", 60),
-    quantity: wholeNumber(input.quantity, "Quantity", 1, 9999),
     selling_price: input.price == null ? 0 : money(input.price, "Price"),
     brand: optionalText(input.brand, "Brand", 60),
     serial_number: optionalText(input.serialNumber, "Part number", 80),
@@ -155,7 +153,8 @@ export async function createPart(input: PartInput): Promise<Created> {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("parts")
-      .insert({ ...partColumns(input), status: "in_stock" })
+      // Every part is a single item, so a sale always takes it out of stock.
+      .insert({ ...partColumns(input), quantity: 1, status: "in_stock" })
       .select("id")
       .single();
     if (error) return failed(error);
@@ -359,7 +358,7 @@ export async function setTaskDone(id: string, done: boolean): Promise<Outcome> {
 const EXPENSE_CATEGORIES = ["transport", "labour", "repairs", "other"];
 
 export type ExpenseInput = { category: string; amount: number; description: string | null };
-export type SaleInput = { price: number; quantity: number; customerName: string | null; customerPhone: string | null };
+export type SaleInput = { price: number; customerName: string | null; customerPhone: string | null };
 export type TemplatePartInput = { name: string; price: number | null };
 
 export async function setPurchasePrice(vehicleId: string, amount: number): Promise<Outcome> {
@@ -407,10 +406,9 @@ export async function sellPart(partId: string, input: SaleInput): Promise<Outcom
   return guard(async () => {
     const id = uuid(partId, "Part");
     const price = money(input.price, "Sold price");
-    const quantity = wholeNumber(input.quantity, "Quantity", 1, 9999);
     const supabase = await createClient();
     const { error } = await supabase.rpc("complete_sale", {
-      items: [{ part_id: id, price, quantity }],
+      items: [{ part_id: id, price, quantity: 1 }],
       customer_name: optionalText(input.customerName, "Customer", 120) ?? undefined,
       customer_phone: optionalText(input.customerPhone, "Phone", 30) ?? undefined,
     });
@@ -465,4 +463,153 @@ export async function removeTask(id: string): Promise<Outcome> {
     refresh();
     return {};
   });
+}
+
+/* --------------------------------------------------------------------------
+   Recently deleted
+   -------------------------------------------------------------------------- */
+
+const DAY_MS = 86_400_000;
+const PURGE_BATCH = 100;
+
+/** Same rule as the database: case and spacing don't matter. */
+function sameName(typed: unknown, actual: string) {
+  const tidy = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+  return typeof typed === "string" && tidy(actual) !== "" && tidy(typed) === tidy(actual);
+}
+
+const typedText = (value: unknown) => (typeof value === "string" ? value.slice(0, 200) : "");
+
+/** Moves a part to Recently deleted. The database re-checks the typed name and refuses parts with sales. */
+export async function binPart(partId: string, typedName: string): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(partId, "Part");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("bin_part", { target: id, typed_name: typedText(typedName) });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+/** Moves a project to Recently deleted, with its unsold parts or leaving them as unassigned stock. */
+export async function binVehicle(vehicleId: string, typedName: string, keepParts: boolean): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(vehicleId, "Project");
+    if (typeof keepParts !== "boolean") throw new InvalidInput("Choose what happens to the parts.");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("bin_vehicle", { target: id, typed_name: typedText(typedName), keep_parts: keepParts });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+export async function restorePart(partId: string): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(partId, "Part");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("restore_part", { target: id });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+export async function restoreVehicle(vehicleId: string): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(vehicleId, "Project");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("restore_vehicle", { target: id });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+// Rows go first, then their files, and only for rows that were really deleted:
+// a part restored a moment ago keeps its photos.
+async function purgeParts(supabase: Client, ids: string[]) {
+  for (let i = 0; i < ids.length; i += PURGE_BATCH) {
+    const batch = ids.slice(i, i + PURGE_BATCH);
+    const { data: images, error: readError } = await supabase.from("part_images").select("part_id, storage_path").in("part_id", batch);
+    if (readError) throw new Error(readError.message);
+    const { data: gone, error } = await supabase.from("parts").delete().in("id", batch).not("deleted_at", "is", null).select("id");
+    if (error) throw new Error(error.message);
+    const removed = new Set(gone.map((row) => row.id));
+    await removeFiles(supabase, PART_PHOTOS, images.filter((image) => removed.has(image.part_id)).map((image) => image.storage_path));
+  }
+}
+
+async function purgeVehicle(supabase: Client, vehicleId: string) {
+  const { data: car, error: carError } = await supabase
+    .from("vehicles")
+    .select("deleted_at, photo_path")
+    .eq("id", vehicleId)
+    .not("deleted_at", "is", null)
+    .maybeSingle();
+  if (carError) throw new Error(carError.message);
+  if (!car?.deleted_at) return false;
+
+  // Parts binned along with the car go with it; parts binned on their own keep their own 30 days.
+  const { data: parts, error: partsError } = await supabase.from("parts").select("id").eq("vehicle_id", vehicleId).eq("deleted_at", car.deleted_at);
+  if (partsError) throw new Error(partsError.message);
+  await purgeParts(supabase, parts.map((part) => part.id));
+
+  const { data: documents, error: documentsError } = await supabase.from("vehicle_documents").select("storage_path").eq("vehicle_id", vehicleId);
+  if (documentsError) throw new Error(documentsError.message);
+  // The checklist, documents and expenses cascade; sold parts stay for the sales records.
+  const { data: gone, error } = await supabase.from("vehicles").delete().eq("id", vehicleId).not("deleted_at", "is", null).select("id");
+  if (error) throw new Error(error.message);
+  if (!gone.length) return false;
+  await removeFiles(supabase, CAR_FILES, [...(car.photo_path ? [car.photo_path] : []), ...documents.map((doc) => doc.storage_path)]);
+  return true;
+}
+
+export async function deletePartForever(partId: string, typedName: string): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(partId, "Part");
+    const supabase = await createClient();
+    const { data: part, error } = await supabase.from("parts").select("name").eq("id", id).not("deleted_at", "is", null).maybeSingle();
+    if (error) return failed(error);
+    if (!part) return { error: "This part is no longer in Recently deleted." };
+    if (!sameName(typedName, part.name)) throw new InvalidInput("The name typed doesn't match.");
+    await purgeParts(supabase, [id]);
+    refresh();
+    return {};
+  });
+}
+
+export async function deleteVehicleForever(vehicleId: string, typedName: string): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(vehicleId, "Project");
+    const supabase = await createClient();
+    const { data: car, error } = await supabase.from("vehicles").select("make, model").eq("id", id).not("deleted_at", "is", null).maybeSingle();
+    if (error) return failed(error);
+    if (!car) return { error: "This project is no longer in Recently deleted." };
+    if (!sameName(typedName, `${car.make} ${car.model}`)) throw new InvalidInput("The name typed doesn't match.");
+    if (!(await purgeVehicle(supabase, id))) return { error: "This project is no longer in Recently deleted." };
+    refresh();
+    return {};
+  });
+}
+
+/**
+ * Deletes for good anything binned more than BIN_DAYS ago. Runs when an owner
+ * opens Recently deleted (row level security gives staff nothing to delete).
+ * Housekeeping only: it never throws and never revalidates.
+ */
+export async function purgeExpiredItems(): Promise<void> {
+  try {
+    const supabase = await createClient();
+    const cutoff = new Date(Date.now() - BIN_DAYS * DAY_MS).toISOString();
+    const { data: cars, error: carsError } = await supabase.from("vehicles").select("id").lte("deleted_at", cutoff);
+    if (carsError) throw new Error(carsError.message);
+    for (const car of cars) await purgeVehicle(supabase, car.id);
+    const { data: parts, error: partsError } = await supabase.from("parts").select("id").lte("deleted_at", cutoff);
+    if (partsError) throw new Error(partsError.message);
+    await purgeParts(supabase, parts.map((part) => part.id));
+  } catch (error) {
+    console.error(error);
+  }
 }

@@ -14,12 +14,13 @@ export default async function PartPage({ params, searchParams }: {
     return <>
       <NavBar back={{ href: "/search", label: "Parts" }} />
       <main className="page page-bottom pt-6">
-        <div className="card"><EmptyState icon="box" title="Part not found" description="It may have been sold or removed." action={<ButtonLink href="/search" variant="secondary">Back to parts</ButtonLink>} /></div>
+        <div className="card"><EmptyState icon="box" title="Part not found" description="It may have been sold or deleted." action={<ButtonLink href="/search" variant="secondary">Back to parts</ButtonLink>} /></div>
       </main>
     </>;
   }
-  // Sales history carries money, so only owners receive it.
-  const sales = role === "owner" ? await getPartSales(id) : null;
+  // Sales history carries money, so only owners receive it. Only owners can delete.
+  const owner = role === "owner";
+  const sales = owner ? await getPartSales(id) : null;
   const notice = !added ? "" : photos === "failed" ? "Part added, but some photos didn't upload" : "Part added";
-  return <PartDetail part={part} vehicles={vehicles} sales={sales} notice={notice} />;
+  return <PartDetail part={part} vehicles={vehicles} sales={sales} canDelete={owner} notice={notice} />;
 }

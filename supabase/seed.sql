@@ -46,7 +46,7 @@ values
    'aaaaaaaa-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111'),
   ('Door, front left', null, 'good', 'Straight, minor scuff.', 1800, 1, 'Container 1', 'reserved',
    'aaaaaaaa-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111'),
-  ('Wheel, 15 inch alloy', null, 'good', 'Four available.', 550, 4, 'Yard back', 'in_stock',
+  ('Wheel, 15 inch alloy', null, 'good', 'Minor kerb rash.', 550, 1, 'Yard back', 'in_stock',
    'aaaaaaaa-0000-0000-0000-000000000002', '22222222-2222-2222-2222-222222222222');
 
 insert into public.project_tasks (vehicle_id, name, done, position, added_by)

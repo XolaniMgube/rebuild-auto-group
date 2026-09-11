@@ -21,7 +21,6 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
   const [brand, setBrand] = useState("");
   const [serial, setSerial] = useState("");
   const [description, setDescription] = useState("");
-  const [quantity, setQuantity] = useState("1");
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -49,13 +48,12 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
       return;
     }
     if (busy || saving) return;
-    if (!Number.isInteger(Number(quantity)) || Number(quantity) < 1) { setError("Quantity must be a whole number of at least 1."); return; }
     const askingPrice = parseRands(price);
     if (Number.isNaN(askingPrice)) { setError("Enter the price in rands, e.g. 400."); return; }
 
     setSaving(true);
     setError(null);
-    const result = await createPart({ name, vehicleId: vehicleId || null, condition, location, quantity: Number(quantity), brand, serialNumber: serial, description, price: askingPrice });
+    const result = await createPart({ name, vehicleId: vehicleId || null, condition, location, brand, serialNumber: serial, description, price: askingPrice });
     if ("error" in result) {
       setError(result.error);
       setSaving(false);
@@ -102,10 +100,7 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
             </Select>
           </Field>
           <FieldSet legend="Condition"><SegmentedControl label="Condition" options={CONDITION_OPTIONS} value={condition} onChange={setCondition} /></FieldSet>
-          <div className="grid grid-cols-[minmax(0,1fr)_104px] gap-3">
-            <Field label="Asking price"><MoneyInput value={price} onChange={e => { setPrice(e.target.value); setError(null); }} placeholder="e.g. 400" /></Field>
-            <Field label="Quantity"><Input type="number" inputMode="numeric" min={1} max={9999} step={1} required value={quantity} onChange={e => setQuantity(e.target.value)} /></Field>
-          </div>
+          <Field label="Asking price"><MoneyInput value={price} onChange={e => { setPrice(e.target.value); setError(null); }} placeholder="e.g. 400" /></Field>
           <Field label="Location"><Input maxLength={60} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Rack B3" /></Field>
         </FormSection>
 

@@ -40,10 +40,12 @@ The schema, security policies and storage bucket are in `supabase/migrations`. R
 
 **Access.** Public sign-up is off. Every account starts with no role and sees no data until an owner grants one.
 
-- **Owner**: everything, including money (purchase prices, expenses, sales and profit) and deleting records.
-- **Staff**: inventory, projects, asking prices and recording sales. Cannot see costs, expenses, sales or profit, or delete parts and cars.
+- **Owner**: everything, including money (purchase prices, expenses, sales and profit) and deleting and restoring parts and projects.
+- **Staff**: inventory, projects, asking prices and recording sales. Cannot see costs, expenses, sales or profit, delete anything, or see what has been deleted.
 
-Sales are written only through `complete_sale()`, which records the price paid and the asking price at the time (so discounts stay visible) and updates stock in one transaction. Owners reverse a mistaken sale with `undo_sale()`, which puts the stock back. Part photos go in the private `part-images` bucket under `<part id>/`; car photos and documents go in `vehicle-files` under `<car id>/photo/` and `<car id>/documents/`.
+**Recently deleted.** Deleting moves a part or project to a bin (`deleted_at`) through `bin_part()` / `bin_vehicle()`, which re-check the name the owner typed. Binned rows are hidden from staff, can't be edited or sold, and can be restored with `restore_part()` / `restore_vehicle()` for 30 days. Only binned rows can be deleted for good; that happens from the Recently deleted page, and anything older than 30 days is removed when an owner opens it. Parts with sales recorded can't be deleted, so the money figures stay right.
+
+Sales are written only through `complete_sale()`, which records the price paid and the asking price at the time (so discounts stay visible) and updates stock in one transaction. Owners reverse a mistaken sale with `undo_sale()`, which puts the stock back. Each sale records who sold it (`sales.sold_by`), and a trigger stamps who put a part on hold and when (`parts.held_by`, `held_at`), clearing it when the hold ends or the part sells. Part photos go in the private `part-images` bucket under `<part id>/`; car photos and documents go in `vehicle-files` under `<car id>/photo/` and `<car id>/documents/`.
 
 ### Connecting a hosted project
 
@@ -61,7 +63,18 @@ Sales are written only through `complete_sale()`, which records the price paid a
    update public.profiles set role = 'owner' where email = 'you@example.com';
    ```
 
-   Owners grant access to everyone else with `select public.set_member_role('<user id>', 'staff');`.
+   Adding someone later works the same way:
+
+   1. **Authentication → Users → Invite user** with their email. They accept the invite and choose a password. Until they have a role they only see "Waiting for access".
+   2. Give them a role in the **SQL Editor**, or edit the `role` cell of their row in **Table Editor → profiles**:
+
+      ```sql
+      update public.profiles set role = 'owner' where email = 'them@example.com';  -- or 'staff'
+      ```
+
+   3. To take access away, set `role` to `null`, and delete them under **Authentication → Users** for good.
+
+   `public.set_member_role()` does the same from inside the app for a signed-in owner; it refuses calls from the SQL Editor because there is no signed-in owner there.
 
 ## Static assets
 
