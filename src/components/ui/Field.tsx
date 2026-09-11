@@ -42,6 +42,14 @@ export function Select({ className = "", children, ...props }: ComponentProps<"s
   </span>;
 }
 
+/** Rand amount field with a fixed "R" prefix. Parse the value with parseRands. */
+export function MoneyInput({ className = "", compact = false, ...props }: Omit<ComponentProps<"input">, "type"> & { compact?: boolean }) {
+  return <span className={`relative block ${className}`}>
+    <span aria-hidden="true" className={`pointer-events-none absolute top-1/2 -translate-y-1/2 font-medium text-secondary ${compact ? "left-3 text-[15px]" : "left-4"}`}>R</span>
+    <input type="text" inputMode="decimal" autoComplete="off" {...props} className={`control tabular-nums disabled:bg-subtle ${compact ? "min-h-11 pl-7 pr-3" : "pl-9"}`} />
+  </span>;
+}
+
 /** Round, iOS-style checkbox. */
 export function CheckCircle({ className = "", ...props }: Omit<ComponentProps<"input">, "type">) {
   return <span className={`relative grid h-6 w-6 shrink-0 place-items-center ${className}`}>

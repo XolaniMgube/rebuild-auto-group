@@ -7,6 +7,18 @@ export function rands(n: number): string {
   return `${sign}R ${body}`;
 }
 
+/**
+ * Reads what people type into a price field: "400", "R 1 250", "1,250" or "250,50".
+ * Blank gives null; anything unreadable or negative gives NaN.
+ */
+export function parseRands(value: string): number | null {
+  let cleaned = value.replace(/[Rr\s]/g, "");
+  if (!cleaned) return null;
+  if (/^\d+,\d{1,2}$/.test(cleaned)) cleaned = cleaned.replace(",", ".");
+  const amount = Number(cleaned.replace(/,/g, ""));
+  return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) / 100 : NaN;
+}
+
 export function randsSigned(n: number): string {
   const s = rands(n);
   return n > 0 ? `+${s}` : s;

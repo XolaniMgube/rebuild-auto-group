@@ -4,10 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MediaPicker, RemoveButton } from "@/components/Attachments";
 import { FormFooter, NavBar } from "@/components/Shell";
-import { Button, DisclosureCard, Field, FieldSet, FormSection, InlineError, Input, SegmentedControl, Select, Spinner, Textarea } from "@/components/ui";
+import { Button, DisclosureCard, Field, FieldSet, FormSection, InlineError, Input, MoneyInput, SegmentedControl, Select, Spinner, Textarea } from "@/components/ui";
 import { createPart } from "@/lib/actions";
 import { discardPreview, prepareAll, preparePhoto, type PreparedFile } from "@/lib/files";
-import { carName } from "@/lib/format";
+import { carName, parseRands } from "@/lib/format";
 import { CONDITION_OPTIONS, MAX_PART_PHOTOS, type Condition, type Vehicle } from "@/lib/types";
 
 export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; initialCar: string | null }) {
@@ -22,6 +22,7 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
   const [serial, setSerial] = useState("");
   const [description, setDescription] = useState("");
   const [quantity, setQuantity] = useState("1");
+  const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,10 +50,12 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
     }
     if (busy || saving) return;
     if (!Number.isInteger(Number(quantity)) || Number(quantity) < 1) { setError("Quantity must be a whole number of at least 1."); return; }
+    const askingPrice = parseRands(price);
+    if (Number.isNaN(askingPrice)) { setError("Enter the price in rands, e.g. 400."); return; }
 
     setSaving(true);
     setError(null);
-    const result = await createPart({ name, vehicleId: vehicleId || null, condition, location, quantity: Number(quantity), brand, serialNumber: serial, description });
+    const result = await createPart({ name, vehicleId: vehicleId || null, condition, location, quantity: Number(quantity), brand, serialNumber: serial, description, price: askingPrice });
     if ("error" in result) {
       setError(result.error);
       setSaving(false);
@@ -100,9 +103,10 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
           </Field>
           <FieldSet legend="Condition"><SegmentedControl label="Condition" options={CONDITION_OPTIONS} value={condition} onChange={setCondition} /></FieldSet>
           <div className="grid grid-cols-[minmax(0,1fr)_104px] gap-3">
-            <Field label="Location"><Input maxLength={60} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Rack B3" /></Field>
+            <Field label="Asking price"><MoneyInput value={price} onChange={e => { setPrice(e.target.value); setError(null); }} placeholder="e.g. 400" /></Field>
             <Field label="Quantity"><Input type="number" inputMode="numeric" min={1} max={9999} step={1} required value={quantity} onChange={e => setQuantity(e.target.value)} /></Field>
           </div>
+          <Field label="Location"><Input maxLength={60} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Rack B3" /></Field>
         </FormSection>
 
         <DisclosureCard title="More details" aside="Optional">

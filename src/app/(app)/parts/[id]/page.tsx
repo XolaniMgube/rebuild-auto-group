@@ -1,6 +1,6 @@
 import { NavBar } from "@/components/Shell";
 import { ButtonLink, EmptyState } from "@/components/ui";
-import { getPart, getVehicles } from "@/lib/data";
+import { getPart, getPartSales, getVehicles, getViewerRole } from "@/lib/data";
 import { PartDetail } from "./PartDetail";
 
 export default async function PartPage({ params, searchParams }: {
@@ -8,7 +8,7 @@ export default async function PartPage({ params, searchParams }: {
   searchParams: Promise<{ added?: string; photos?: string }>;
 }) {
   const [{ id }, { added, photos }] = await Promise.all([params, searchParams]);
-  const [part, vehicles] = await Promise.all([getPart(id), getVehicles()]);
+  const [part, vehicles, role] = await Promise.all([getPart(id), getVehicles(), getViewerRole()]);
 
   if (!part) {
     return <>
@@ -18,6 +18,8 @@ export default async function PartPage({ params, searchParams }: {
       </main>
     </>;
   }
+  // Sales history carries money, so only owners receive it.
+  const sales = role === "owner" ? await getPartSales(id) : null;
   const notice = !added ? "" : photos === "failed" ? "Part added, but some photos didn't upload" : "Part added";
-  return <PartDetail part={part} vehicles={vehicles} notice={notice} />;
+  return <PartDetail part={part} vehicles={vehicles} sales={sales} notice={notice} />;
 }

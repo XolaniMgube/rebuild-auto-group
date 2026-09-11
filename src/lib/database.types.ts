@@ -224,6 +224,7 @@ export type Database = {
         Row: {
           cost_at_sale: number | null
           id: string
+          list_price_at_sale: number | null
           part_id: string
           price_at_sale: number
           quantity: number
@@ -232,6 +233,7 @@ export type Database = {
         Insert: {
           cost_at_sale?: number | null
           id?: string
+          list_price_at_sale?: number | null
           part_id: string
           price_at_sale: number
           quantity?: number
@@ -240,6 +242,7 @@ export type Database = {
         Update: {
           cost_at_sale?: number | null
           id?: string
+          list_price_at_sale?: number | null
           part_id?: string
           price_at_sale?: number
           quantity?: number
@@ -351,6 +354,54 @@ export type Database = {
           },
         ]
       }
+      vehicle_expenses: {
+        Row: {
+          added_by: string | null
+          amount: number
+          category: string
+          created_at: string
+          description: string | null
+          id: string
+          spent_on: string
+          vehicle_id: string
+        }
+        Insert: {
+          added_by?: string | null
+          amount: number
+          category: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          spent_on?: string
+          vehicle_id: string
+        }
+        Update: {
+          added_by?: string | null
+          amount?: number
+          category?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          spent_on?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicle_expenses_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicle_expenses_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vehicles: {
         Row: {
           added_by: string | null
@@ -431,6 +482,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      undo_sale: { Args: { target_sale: string }; Returns: undefined }
     }
     Enums: {
       app_role: "owner" | "staff"

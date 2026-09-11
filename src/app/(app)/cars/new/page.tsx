@@ -4,14 +4,17 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileTile, MediaPicker } from "@/components/Attachments";
 import { Icon } from "@/components/Icon";
+import { useSession } from "@/components/Session";
 import { FormFooter, NavBar } from "@/components/Shell";
-import { Button, DisclosureCard, Field, FormSection, IconButton, InlineError, Input, Spinner, Textarea } from "@/components/ui";
+import { Button, CheckCircle, DisclosureCard, Field, FormSection, IconButton, InlineError, Input, MoneyInput, Spinner, Textarea } from "@/components/ui";
 import { createVehicle } from "@/lib/actions";
 import { discardPreview, prepareAll, prepareDocument, preparePhoto, type PreparedFile } from "@/lib/files";
+import { parseRands } from "@/lib/format";
 import { MAX_CAR_DOCUMENTS } from "@/lib/types";
 
 export default function NewCarPage() {
   const router = useRouter();
+  const owner = useSession().role === "owner";
   const [saving, startSaving] = useTransition();
 
   const [make, setMake] = useState("");
@@ -21,6 +24,8 @@ export default function NewCarPage() {
   const [vin, setVin] = useState("");
   const [color, setColor] = useState("");
   const [notes, setNotes] = useState("");
+  const [price, setPrice] = useState("");
+  const [strip, setStrip] = useState(true);
   const [photo, setPhoto] = useState<PreparedFile | null>(null);
   const [documents, setDocuments] = useState<PreparedFile[]>([]);
   const [preparing, setPreparing] = useState(false);
@@ -60,10 +65,12 @@ export default function NewCarPage() {
       return;
     }
     if (year && (!Number.isInteger(Number(year)) || Number(year) < 1900 || Number(year) > new Date().getFullYear() + 1)) { setError("Enter a valid car year."); return; }
+    const purchasePrice = owner ? parseRands(price) : null;
+    if (Number.isNaN(purchasePrice)) { setError("Enter what the car cost in rands, e.g. 20000."); return; }
     if (preparing) return;
     setError(null);
     startSaving(async () => {
-      const result = await createVehicle({ make, model, year: year ? Number(year) : null, color, registration, vin, notes });
+      const result = await createVehicle({ make, model, year: year ? Number(year) : null, color, registration, vin, notes, purchasePrice });
       if ("error" in result) { setError(result.error); return; }
 
       // The project exists now, so a failed upload never loses the project itself.
@@ -80,7 +87,7 @@ export default function NewCarPage() {
           filesFailed = true;
         }
       }
-      router.push(`/cars/${result.id}${filesFailed ? "?files=failed" : ""}`);
+      router.push(`/cars/${result.id}${strip ? "/strip" : ""}${filesFailed ? "?files=failed" : ""}`);
     });
   }
 
@@ -112,7 +119,19 @@ export default function NewCarPage() {
             <Field label="Year"><Input type="number" inputMode="numeric" min={1900} max={new Date().getFullYear() + 1} step={1} value={year} onChange={e => setYear(e.target.value)} placeholder="2012" /></Field>
             <Field label="Colour"><Input maxLength={40} value={color} onChange={e => setColor(e.target.value)} placeholder="White" /></Field>
           </div>
+          {owner && <Field label="Bought for" hint="Transport and labour go in later as expenses.">
+            <MoneyInput value={price} onChange={e => { setPrice(e.target.value); setError(null); }} placeholder="e.g. 20000" />
+          </Field>}
         </FormSection>
+
+        <label className="card flex cursor-pointer items-center gap-4 p-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-navy-tint text-brand-navy"><Icon name="checklist" className="h-5 w-5" /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-card">Strip for parts</span>
+            <span className="mt-0.5 block text-meta text-secondary">Pick this car&apos;s parts from a list next</span>
+          </span>
+          <CheckCircle checked={strip} disabled={saving} onChange={e => setStrip(e.target.checked)} />
+        </label>
 
         <FormSection title="Documents" aside={`${documents.length}/${MAX_CAR_DOCUMENTS}`}>
           {documents.length > 0 && <ul className="-my-1 divide-y divide-separator">{documents.map((doc, i) => <li key={`${i}-${doc.name}`} className="flex items-center gap-3 py-2">
@@ -134,7 +153,9 @@ export default function NewCarPage() {
     </main>
     <FormFooter>
       {error && <InlineError>{error}</InlineError>}
-      <Button type="submit" form="new-project" block loading={saving} disabled={preparing}>{saving ? "Creating…" : "Create project"}</Button>
+      <Button type="submit" form="new-project" block loading={saving} disabled={preparing}>
+        {saving ? "Creating…" : strip ? "Create and choose parts" : "Create project"}
+      </Button>
     </FormFooter>
   </>;
 }

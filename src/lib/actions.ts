@@ -17,6 +17,7 @@ export type VehicleInput = {
   registration: string | null;
   vin: string | null;
   notes: string | null;
+  purchasePrice: number | null;
 };
 
 export type PartInput = {
@@ -28,6 +29,7 @@ export type PartInput = {
   brand: string | null;
   serialNumber: string | null;
   description: string | null;
+  price: number | null;
 };
 
 export type DocumentInput = {
@@ -88,6 +90,14 @@ function wholeNumber(value: unknown, label: string, min: number, max: number) {
   return value;
 }
 
+/** A rand amount, rounded to cents. */
+function money(value: unknown, label: string) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 99_999_999) {
+    throw new InvalidInput(`${label} must be an amount in rands.`);
+  }
+  return Math.round(value * 100) / 100;
+}
+
 function uuid(value: unknown, label: string) {
   if (!isUuid(value)) throw new InvalidInput(`${label} is invalid.`);
   return value;
@@ -101,6 +111,7 @@ function partColumns(input: PartInput) {
     condition: input.condition,
     location: optionalText(input.location, "Location", 60),
     quantity: wholeNumber(input.quantity, "Quantity", 1, 9999),
+    selling_price: input.price == null ? 0 : money(input.price, "Price"),
     brand: optionalText(input.brand, "Brand", 60),
     serial_number: optionalText(input.serialNumber, "Part number", 80),
     description: optionalText(input.description, "Notes", 2000),
@@ -129,6 +140,7 @@ export async function createVehicle(input: VehicleInput): Promise<Created> {
       registration: optionalText(input.registration, "Registration", 20),
       vin: optionalText(input.vin, "VIN", 32),
       notes: optionalText(input.notes, "Notes", 2000),
+      purchase_price: input.purchasePrice == null ? 0 : money(input.purchasePrice, "Purchase price"),
     };
     const supabase = await createClient();
     const { data, error } = await supabase.from("vehicles").insert(row).select("id").single();
@@ -337,6 +349,110 @@ export async function setTaskDone(id: string, done: boolean): Promise<Outcome> {
     if (!data.length) return { error: "This task no longer exists. Refresh and try again." };
     refresh();
     return {};
+  });
+}
+
+/* --------------------------------------------------------------------------
+   Money
+   -------------------------------------------------------------------------- */
+
+const EXPENSE_CATEGORIES = ["transport", "labour", "repairs", "other"];
+
+export type ExpenseInput = { category: string; amount: number; description: string | null };
+export type SaleInput = { price: number; quantity: number; customerName: string | null; customerPhone: string | null };
+export type TemplatePartInput = { name: string; price: number | null };
+
+export async function setPurchasePrice(vehicleId: string, amount: number): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(vehicleId, "Car");
+    const purchase_price = money(amount, "Purchase price");
+    const supabase = await createClient();
+    const { data, error } = await supabase.from("vehicles").update({ purchase_price }).eq("id", id).select("id");
+    if (error) return failed(error);
+    if (!data.length) return { error: "This project no longer exists. Refresh and try again." };
+    refresh();
+    return {};
+  });
+}
+
+export async function addExpense(vehicleId: string, input: ExpenseInput): Promise<Outcome> {
+  return guard(async () => {
+    const vehicle_id = uuid(vehicleId, "Car");
+    if (!EXPENSE_CATEGORIES.includes(input.category)) throw new InvalidInput("Choose what the expense was for.");
+    const amount = money(input.amount, "Amount");
+    if (amount <= 0) throw new InvalidInput("Amount must be more than R 0.");
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("vehicle_expenses")
+      .insert({ vehicle_id, category: input.category, amount, description: optionalText(input.description, "Note", 120) });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+export async function removeExpense(expenseId: string): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(expenseId, "Expense");
+    const supabase = await createClient();
+    const { error } = await supabase.from("vehicle_expenses").delete().eq("id", id);
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+/** Records a part as sold at the price the customer actually paid. */
+export async function sellPart(partId: string, input: SaleInput): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(partId, "Part");
+    const price = money(input.price, "Sold price");
+    const quantity = wholeNumber(input.quantity, "Quantity", 1, 9999);
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("complete_sale", {
+      items: [{ part_id: id, price, quantity }],
+      customer_name: optionalText(input.customerName, "Customer", 120) ?? undefined,
+      customer_phone: optionalText(input.customerPhone, "Phone", 30) ?? undefined,
+    });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+/** Owners reverse a sale recorded by mistake; the stock goes back. */
+export async function undoSale(saleId: string): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(saleId, "Sale");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("undo_sale", { target_sale: id });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+/** Adds many parts to a car at once, from the strip list. */
+export async function createPartsFromTemplate(vehicleId: string, parts: TemplatePartInput[]): Promise<{ count: number } | { error: string }> {
+  return guard(async () => {
+    const vehicle_id = uuid(vehicleId, "Car");
+    if (!Array.isArray(parts) || !parts.length || parts.length > 300) throw new InvalidInput("Choose between 1 and 300 parts.");
+    const rows = parts.map(part => {
+      const name = requiredText(part?.name, "Part name", 120);
+      return {
+        name,
+        vehicle_id,
+        condition: "good" as const,
+        quantity: 1,
+        selling_price: part.price == null ? 0 : money(part.price, `Price for ${name}`),
+        status: "in_stock" as const,
+      };
+    });
+    const supabase = await createClient();
+    const { error } = await supabase.from("parts").insert(rows);
+    if (error) return failed(error);
+    refresh();
+    return { count: rows.length };
   });
 }
 

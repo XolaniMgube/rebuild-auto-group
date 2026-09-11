@@ -40,10 +40,10 @@ The schema, security policies and storage bucket are in `supabase/migrations`. R
 
 **Access.** Public sign-up is off. Every account starts with no role and sees no data until an owner grants one.
 
-- **Owner**: everything, including sales and deleting records.
-- **Staff**: inventory, projects and recording sales. Cannot read sales or delete parts and cars.
+- **Owner**: everything, including money (purchase prices, expenses, sales and profit) and deleting records.
+- **Staff**: inventory, projects, asking prices and recording sales. Cannot see costs, expenses, sales or profit, or delete parts and cars.
 
-Sales are written only through `complete_sale()`, which freezes prices and updates stock in one transaction. Part photos go in the private `part-images` bucket under `<part id>/`; car photos and documents go in `vehicle-files` under `<car id>/photo/` and `<car id>/documents/`.
+Sales are written only through `complete_sale()`, which records the price paid and the asking price at the time (so discounts stay visible) and updates stock in one transaction. Owners reverse a mistaken sale with `undo_sale()`, which puts the stock back. Part photos go in the private `part-images` bucket under `<part id>/`; car photos and documents go in `vehicle-files` under `<car id>/photo/` and `<car id>/documents/`.
 
 ### Connecting a hosted project
 
@@ -86,5 +86,7 @@ are generated from the icon PNG when the app builds.
 - Photos and documents are prepared on the phone (`src/lib/files.ts`), uploaded straight to private Storage (`src/lib/uploads.ts`), then recorded by a Server Action. Each photo is stored with a small `-thumb.jpg` preview that lists use. Pages show files through signed URLs that expire after an hour.
 - Parts can have up to 4 photos. Cars can have one photo and up to 5 documents (PDF or image, 10 MB each). The database enforces these limits.
 - Parts lists show in-stock and on-hold parts. Sold parts stay in the database for sales history.
+- Money per car: what it was bought for plus its expenses (transport, labour, repairs, other) is the cost; what its parts actually sold for is the revenue. Each part has an asking price; the price paid is entered when it is marked as sold.
+- Stripping a car: `/cars/[id]/strip` lists the typical parts from `src/lib/strip-template.ts`, all ticked, to price and add in one go. Edit that file to change the list.
 
 Car assignment organises parts; it does not verify mechanical compatibility.

@@ -1,12 +1,17 @@
+import { cache } from "react";
 import type { Tables } from "./database.types";
 import { isUuid, thumbPathFor } from "./ids";
 import { createClient } from "./supabase/server";
 import {
   ACTIVE_STATUSES,
+  type ExpenseCategory,
   type Part,
+  type ProjectMoney,
   type ProjectSummary,
   type ProjectTask,
+  type Role,
   type SignedPhoto,
+  type SoldItem,
   type Vehicle,
   type VehicleDocument,
   type WorkspaceCounts,
@@ -15,10 +20,12 @@ import {
 // Server-side reads. Every query runs as the signed-in user, so row level
 // security decides what comes back.
 
-const VEHICLE_COLUMNS = "id, make, model, year, vin, registration, color, notes, created_at";
-const VEHICLE_WITH_PHOTO = "id, make, model, year, vin, registration, color, notes, created_at, photo_path";
+const VEHICLE_COLUMNS = "id, make, model, year, vin, registration, color, notes, purchase_price, created_at";
+const VEHICLE_WITH_PHOTO = "id, make, model, year, vin, registration, color, notes, purchase_price, created_at, photo_path";
 const PART_COLUMNS =
-  "id, name, brand, serial_number, condition, description, quantity, location, status, vehicle_id, created_at, part_images(id, storage_path, position)";
+  "id, name, brand, serial_number, condition, description, quantity, selling_price, location, status, vehicle_id, created_at, part_images(id, storage_path, position)";
+const SALE_COLUMNS =
+  "id, quantity, price_at_sale, list_price_at_sale, sale:sales!inner(id, sale_date, customer_name), part:parts!inner(id, name, vehicle_id)";
 const DOCUMENT_COLUMNS = "id, storage_path, file_name, content_type, size_bytes, created_at";
 
 const PAGE_SIZE = 1000; // the Data API's default row cap
@@ -26,11 +33,19 @@ const FILE_URL_SECONDS = 60 * 60;
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 type Bucket = "part-images" | "vehicle-files";
-type VehicleRecord = Pick<Tables<"vehicles">, "id" | "make" | "model" | "year" | "vin" | "registration" | "color" | "notes" | "created_at">;
+type VehicleRecord = Pick<Tables<"vehicles">, "id" | "make" | "model" | "year" | "vin" | "registration" | "color" | "notes" | "purchase_price" | "created_at">;
 type PartRecord = Pick<
   Tables<"parts">,
-  "id" | "name" | "brand" | "serial_number" | "condition" | "description" | "quantity" | "location" | "status" | "vehicle_id" | "created_at"
+  "id" | "name" | "brand" | "serial_number" | "condition" | "description" | "quantity" | "selling_price" | "location" | "status" | "vehicle_id" | "created_at"
 > & { part_images: Pick<Tables<"part_images">, "id" | "storage_path" | "position">[] };
+type SaleRecord = {
+  id: string;
+  quantity: number;
+  price_at_sale: number;
+  list_price_at_sale: number | null;
+  sale: { id: string; sale_date: string; customer_name: string | null };
+  part: { id: string; name: string };
+};
 
 // Reads every page so long lists are never silently cut off at the row cap.
 async function allRows<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
@@ -53,7 +68,22 @@ function toVehicle(row: VehicleRecord): Vehicle {
     registration: row.registration,
     color: row.color,
     notes: row.notes,
+    purchasePrice: row.purchase_price,
     createdAt: row.created_at,
+  };
+}
+
+function toSoldItem(row: SaleRecord): SoldItem {
+  return {
+    id: row.id,
+    saleId: row.sale.id,
+    partId: row.part.id,
+    partName: row.part.name,
+    quantity: row.quantity,
+    price: row.price_at_sale,
+    listPrice: row.list_price_at_sale,
+    soldAt: row.sale.sale_date,
+    customerName: row.sale.customer_name,
   };
 }
 
@@ -70,6 +100,7 @@ function toPart(row: PartRecord, photos: Map<string, SignedPhoto>, limit?: numbe
     condition: row.condition,
     description: row.description,
     quantity: row.quantity,
+    price: row.selling_price,
     location: row.location,
     status: row.status,
     images: sortedImages(row).slice(0, limit).flatMap((image) => {
@@ -109,6 +140,61 @@ async function signPhotos(supabase: Client, bucket: Bucket, paths: string[], ful
     if (url && thumbUrl) photos.set(path, { url, thumbUrl });
   }
   return photos;
+}
+
+/** The signed-in person's role, looked up once per request. Decides whether money is shown. */
+export const getViewerRole = cache(async (): Promise<Role | null> => {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  if (!data?.claims) return null;
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", data.claims.sub).maybeSingle();
+  return profile?.role ?? null;
+});
+
+/** Expenses and sales for one car. Row level security returns nothing to staff, so only call this for owners. */
+export async function getProjectMoney(vehicleId: string): Promise<ProjectMoney> {
+  if (!isUuid(vehicleId)) return { expenses: [], sales: [] };
+  const supabase = await createClient();
+  const [expenses, sales] = await Promise.all([
+    supabase
+      .from("vehicle_expenses")
+      .select("id, category, description, amount, spent_on")
+      .eq("vehicle_id", vehicleId)
+      .order("spent_on", { ascending: false })
+      .order("created_at", { ascending: false }),
+    supabase.from("sale_items").select(SALE_COLUMNS).eq("part.vehicle_id", vehicleId),
+  ]);
+  if (expenses.error) throw new Error(expenses.error.message);
+  if (sales.error) throw new Error(sales.error.message);
+  return {
+    expenses: expenses.data.map(row => ({
+      id: row.id,
+      category: row.category as ExpenseCategory,
+      description: row.description,
+      amount: row.amount,
+      spentOn: row.spent_on,
+    })),
+    sales: (sales.data as SaleRecord[]).map(toSoldItem).sort((a, b) => b.soldAt.localeCompare(a.soldAt)),
+  };
+}
+
+/** Sales of one part, newest first. Owners only. */
+export async function getPartSales(partId: string): Promise<SoldItem[]> {
+  if (!isUuid(partId)) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("sale_items").select(SALE_COLUMNS).eq("part_id", partId);
+  if (error) throw new Error(error.message);
+  return (data as SaleRecord[]).map(toSoldItem).sort((a, b) => b.soldAt.localeCompare(a.soldAt));
+}
+
+/** Names of every part already recorded against a car, sold ones included. */
+export async function getVehiclePartNames(vehicleId: string): Promise<string[]> {
+  if (!isUuid(vehicleId)) return [];
+  const supabase = await createClient();
+  const rows = await allRows<{ name: string }>((from, to) =>
+    supabase.from("parts").select("name").eq("vehicle_id", vehicleId).order("id").range(from, to)
+  );
+  return rows.map(row => row.name);
 }
 
 /** Sidebar badges. Non-critical, so any failure returns null instead of breaking the page. */
@@ -183,6 +269,7 @@ export async function getActiveParts(vehicleId?: string): Promise<Part[]> {
     const query = supabase.from("parts").select(PART_COLUMNS).in("status", ACTIVE_STATUSES);
     return (vehicleId ? query.eq("vehicle_id", vehicleId) : query)
       .order("created_at", { ascending: false })
+      .order("name") // parts added together from the strip list share a timestamp
       .order("id")
       .range(from, to);
   });
@@ -215,9 +302,19 @@ export async function getTasks(vehicleId: string): Promise<ProjectTask[]> {
   return data.map((row) => ({ id: row.id, vehicleId: row.vehicle_id, name: row.name, done: row.done }));
 }
 
-/** Every project with its photo, active part count and checklist progress. */
-export async function getProjectSummaries(): Promise<ProjectSummary[]> {
+/** Every project with its photo, active part count and checklist progress, plus cost and sales for owners. */
+export async function getProjectSummaries(includeMoney = false): Promise<ProjectSummary[]> {
   const supabase = await createClient();
+  const moneyRows = includeMoney
+    ? Promise.all([
+      allRows<{ vehicle_id: string; amount: number }>((from, to) =>
+        supabase.from("vehicle_expenses").select("vehicle_id, amount").order("id").range(from, to)
+      ),
+      allRows<{ quantity: number; price_at_sale: number; part: { vehicle_id: string | null } }>((from, to) =>
+        supabase.from("sale_items").select("quantity, price_at_sale, part:parts!inner(vehicle_id)").order("id").range(from, to)
+      ),
+    ])
+    : null;
   const [vehicles, parts, tasks] = await Promise.all([
     allRows<VehicleRecord & { photo_path: string | null }>((from, to) =>
       supabase.from("vehicles").select(VEHICLE_WITH_PHOTO).order("created_at", { ascending: false }).order("id").range(from, to)
@@ -243,9 +340,20 @@ export async function getProjectSummaries(): Promise<ProjectSummary[]> {
     taskCounts.set(task.vehicle_id, count);
   }
 
+  const spent = new Map<string, number>();
+  const sold = new Map<string, number>();
+  const money = moneyRows ? await moneyRows : null;
+  if (money) {
+    for (const expense of money[0]) spent.set(expense.vehicle_id, (spent.get(expense.vehicle_id) ?? 0) + expense.amount);
+    for (const item of money[1]) {
+      if (item.part.vehicle_id) sold.set(item.part.vehicle_id, (sold.get(item.part.vehicle_id) ?? 0) + item.price_at_sale * item.quantity);
+    }
+  }
+
   return vehicles.map((row) => ({
     vehicle: toVehicle(row),
     photo: row.photo_path ? photos.get(row.photo_path)?.thumbUrl ?? null : null,
+    money: money ? { cost: row.purchase_price + (spent.get(row.id) ?? 0), revenue: sold.get(row.id) ?? 0 } : null,
     partCount: partCounts.get(row.id) ?? 0,
     tasksDone: taskCounts.get(row.id)?.done ?? 0,
     tasksTotal: taskCounts.get(row.id)?.total ?? 0,

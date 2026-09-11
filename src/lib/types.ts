@@ -18,6 +18,7 @@ export interface Vehicle {
   registration: string | null;
   color: string | null;
   notes: string | null;
+  purchasePrice: number;
   createdAt: string;
 }
 
@@ -39,6 +40,7 @@ export interface Part {
   condition: Condition;
   description: string | null;
   quantity: number;
+  price: number; // asking price in rands; 0 means not priced yet
   location: string | null;
   status: PartStatus;
   images: PartPhoto[]; // cover photo first
@@ -66,9 +68,47 @@ export interface ProjectTask {
 export interface ProjectSummary {
   vehicle: Vehicle;
   photo: string | null; // preview URL
+  money: { cost: number; revenue: number } | null; // owners only
   partCount: number;
   tasksDone: number;
   tasksTotal: number;
+}
+
+export type ExpenseCategory = "transport" | "labour" | "repairs" | "other";
+
+export const EXPENSE_LABEL: Record<ExpenseCategory, string> = {
+  transport: "Transport",
+  labour: "Labour",
+  repairs: "Repairs",
+  other: "Other",
+};
+
+export const EXPENSE_OPTIONS = (Object.keys(EXPENSE_LABEL) as ExpenseCategory[]).map(value => ({ value, label: EXPENSE_LABEL[value] }));
+
+export interface VehicleExpense {
+  id: string;
+  category: ExpenseCategory;
+  description: string | null;
+  amount: number;
+  spentOn: string;
+}
+
+/** One sold line: what a part actually went for, and what was being asked at the time. */
+export interface SoldItem {
+  id: string;
+  saleId: string;
+  partId: string;
+  partName: string;
+  quantity: number;
+  price: number;
+  listPrice: number | null;
+  soldAt: string;
+  customerName: string | null;
+}
+
+export interface ProjectMoney {
+  expenses: VehicleExpense[];
+  sales: SoldItem[];
 }
 
 /** Live counts shown in the sidebar. */

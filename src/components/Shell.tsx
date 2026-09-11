@@ -111,7 +111,7 @@ function NavItem({ href, label, count, active, icon, dot }: { href: string; labe
 
 export function BottomNav() {
   const path = usePathname();
-  if (TASK_SCREENS.includes(path)) return null;
+  if (TASK_SCREENS.includes(path) || path.endsWith("/strip")) return null;
   const [parts, projects] = TABS;
 
   // A floating bar: solid surface and real depth so it reads clearly over any content.

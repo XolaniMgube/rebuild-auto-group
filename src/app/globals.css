@@ -55,6 +55,8 @@
 
 @layer base {
   html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-rendering: optimizeLegibility; }
+  /* Anything scrolled into view (focus, keyboard "next", validation) stays clear of the sticky header and the floating tab bar. */
+  html { scroll-padding-top: calc(56px + env(safe-area-inset-top) + 8px); scroll-padding-bottom: calc(var(--nav-height) + max(12px, env(safe-area-inset-bottom)) + 44px); }
   body { @apply bg-canvas font-sans text-body text-ink antialiased; }
   button, a, input, select, textarea, summary, label { touch-action: manipulation; }
   :focus-visible { outline: 3px solid rgb(var(--brand-navy) / 0.3); outline-offset: 2px; }
@@ -105,6 +107,7 @@
 }
 
 @media (min-width: 1024px) {
+  html { scroll-padding-bottom: 16px; }
   .page-bottom { padding-bottom: 56px; }
 }
 

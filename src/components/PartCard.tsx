@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { carName } from "@/lib/format";
+import { carName, rands } from "@/lib/format";
 import type { Part, Vehicle } from "@/lib/types";
 import { Icon } from "./Icon";
 import { PartThumb } from "./PartThumb";
@@ -9,7 +9,10 @@ export function PartCard({ part, vehicle, showVehicle = true }: { part: Part; ve
   return <Link href={`/parts/${part.id}`} className="card-link flex items-center gap-4 p-3 pr-4">
     <PartThumb image={part.images[0]?.thumbUrl} name={part.name} />
     <div className="min-w-0 flex-1 py-0.5">
-      <h3 className="line-clamp-2 text-card">{part.name}</h3>
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="line-clamp-2 text-card">{part.name}</h3>
+        {part.price > 0 && <span className="shrink-0 text-card tabular-nums">{rands(part.price)}</span>}
+      </div>
       {showVehicle && <p className="mt-0.5 truncate text-meta text-secondary">{vehicle ? carName(vehicle) : "Unassigned"}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <ConditionBadge condition={part.condition} />

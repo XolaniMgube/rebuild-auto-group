@@ -6,5 +6,5 @@ export { DetailList, DetailRow, DisclosureCard, FormSection, RowLink, SectionHea
 export { ChipGroup, FilterButton, FilterTiles, SearchBar, SegmentedControl } from "./Controls";
 export type { TileTone } from "./Controls";
 export { EmptyState, InlineError, Notice, Skeleton, Spinner } from "./Feedback";
-export { CheckCircle, Field, FieldSet, Input, Select, Textarea } from "./Field";
+export { CheckCircle, Field, FieldSet, Input, MoneyInput, Select, Textarea } from "./Field";
 export { ConfirmProvider, Sheet, useConfirm } from "./Sheet";

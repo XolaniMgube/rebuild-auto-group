@@ -8,18 +8,14 @@ import { NavBar } from "@/components/Shell";
 import { ButtonLink, CheckCircle, DetailList, DetailRow, EmptyState, IconButton, IconLink, InlineError, Input, Notice, SectionHeading, SegmentedControl } from "@/components/ui";
 import { addTask, removeTask, setTaskDone } from "@/lib/actions";
 import { carName } from "@/lib/format";
-import type { Part, ProjectTask, SignedPhoto, Vehicle, VehicleDocument } from "@/lib/types";
+import type { Part, ProjectMoney as Money, ProjectTask, SignedPhoto, Vehicle, VehicleDocument } from "@/lib/types";
 import { CarDocuments, CarPhotoControls } from "./CarFiles";
+import { ProjectMoney } from "./ProjectMoney";
 
-type Tab = "parts" | "checklist" | "details";
+type Tab = "parts" | "money" | "checklist" | "details";
 type TaskChange = { type: "add"; task: ProjectTask } | { type: "toggle"; id: string } | { type: "remove"; id: string };
 
 const PENDING = "pending-";
-const TABS: { value: Tab; label: string }[] = [
-  { value: "parts", label: "Parts" },
-  { value: "checklist", label: "Checklist" },
-  { value: "details", label: "Details" },
-];
 
 function applyChange(tasks: ProjectTask[], change: TaskChange) {
   if (change.type === "add") return [...tasks, change.task];
@@ -27,12 +23,15 @@ function applyChange(tasks: ProjectTask[], change: TaskChange) {
   return tasks.filter(t => t.id !== change.id);
 }
 
-export function ProjectDetail({ vehicle, photo, documents, parts, tasks, notice }: {
+const headingLink = "-mr-1 inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 text-[15px] font-semibold text-brand-navy transition hover:bg-brand-navy-tint";
+
+export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, notice }: {
   vehicle: Vehicle;
   photo: SignedPhoto | null;
   documents: VehicleDocument[];
   parts: Part[];
   tasks: ProjectTask[];
+  money: Money | null;
   notice: string;
 }) {
   const id = vehicle.id;
@@ -48,6 +47,13 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, notice 
   const summary = [vehicle.year, vehicle.color].filter(Boolean).join(" · ");
   const facts = ([["Year", vehicle.year], ["Colour", vehicle.color], ["Registration", vehicle.registration], ["VIN", vehicle.vin]] as const)
     .filter(([, value]) => value);
+  const stockValue = parts.reduce((sum, part) => sum + part.price * part.quantity, 0);
+  const tabs: { value: Tab; label: string }[] = [
+    { value: "parts", label: "Parts" },
+    ...(money ? [{ value: "money" as const, label: "Money" }] : []),
+    { value: "checklist", label: "Checklist" },
+    { value: "details", label: "Details" },
+  ];
 
   function save(change: TaskChange, action: () => Promise<{ error?: string }>) {
     setError(null);
@@ -78,7 +84,7 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, notice 
         {message && <Notice onDismiss={() => setMessage("")}>{message}</Notice>}
         {fileError && <Notice tone="error" onDismiss={() => setFileError(null)}>{fileError}</Notice>}
 
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px] xl:items-start">
           <div className="min-w-0 space-y-5">
             <section className="card overflow-hidden">
               {photo
@@ -98,18 +104,29 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, notice 
               </div>
             </section>
 
-            <div className="xl:hidden"><SegmentedControl tabs label="Project sections" options={TABS} value={tab} onChange={setTab} /></div>
+            <div className="xl:hidden"><SegmentedControl tabs label="Project sections" options={tabs} value={tab} onChange={setTab} /></div>
 
             <section id="panel-parts" role="tabpanel" aria-labelledby="tab-parts" className={tab === "parts" ? "" : "hidden xl:block"}>
-              <SectionHeading title="Parts" count={parts.length}
-                action={parts.length > 0 && <Link href={`/search?car=${id}`} className="-mr-1 inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 text-[15px] font-semibold text-brand-navy transition hover:bg-brand-navy-tint"><Icon name="search" className="h-4 w-4" />Find</Link>} />
+              <SectionHeading title="Parts" count={parts.length} action={<div className="flex items-center">
+                <Link href={`/cars/${id}/strip`} className={headingLink}><Icon name="checklist" className="h-4 w-4" />Add from list</Link>
+                {parts.length > 0 && <Link href={`/search?car=${id}`} className={headingLink}><Icon name="search" className="h-4 w-4" />Find</Link>}
+              </div>} />
               {parts.length
                 ? <div className="space-y-3">{parts.map(p => <PartCard key={p.id} part={p} vehicle={vehicle} showVehicle={false} />)}</div>
-                : <div className="card"><EmptyState icon="box" title="No parts yet" description="Parts taken off this car will appear here." action={<ButtonLink href={`/add?car=${id}`}>Add part</ButtonLink>} /></div>}
+                : <div className="card"><EmptyState icon="box" title="No parts yet" description="Strip the car with the parts list, or add parts one at a time."
+                  action={<div className="flex flex-wrap justify-center gap-3">
+                    <ButtonLink href={`/cars/${id}/strip`}>Choose parts to strip</ButtonLink>
+                    <ButtonLink href={`/add?car=${id}`} variant="secondary">Add one part</ButtonLink>
+                  </div>} /></div>}
             </section>
           </div>
 
           <div className="min-w-0 space-y-5">
+            {money && <section id="panel-money" role="tabpanel" aria-labelledby="tab-money" className={tab === "money" ? "" : "hidden xl:block"}>
+              <SectionHeading title="Money" />
+              <ProjectMoney vehicle={vehicle} money={money} stockValue={stockValue} onMessage={setMessage} />
+            </section>}
+
             <section id="panel-checklist" role="tabpanel" aria-labelledby="tab-checklist" className={tab === "checklist" ? "" : "hidden xl:block"}>
               <SectionHeading title="Checklist" action={<span className="text-meta font-semibold tabular-nums text-secondary">{done}/{checklist.length}</span>} />
               <div className="card p-4">
