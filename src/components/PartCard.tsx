@@ -17,8 +17,16 @@ function shelfAge(iso: string) {
   return `${Math.floor(days / 30)}mo`;
 }
 
-export function PartCard({ part, vehicle, showVehicle = true }: { part: Part; vehicle?: Vehicle | null; showVehicle?: boolean }) {
-  return <Link href={`/parts/${part.id}`} className="card-link flex items-center gap-4 p-3 pr-4">
+/** Opens the part, or ticks it while several are being picked for deletion. */
+export function PartCard({ part, vehicle, showVehicle = true, selectable = false, selected = false, onSelect }: {
+  part: Part;
+  vehicle?: Vehicle | null;
+  showVehicle?: boolean;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelect?: (id: string) => void;
+}) {
+  const body = <>
     <PartThumb image={part.images[0]?.thumbUrl} name={part.name} />
     <div className="min-w-0 flex-1 py-0.5">
       <div className="flex items-start justify-between gap-3">
@@ -39,6 +47,20 @@ export function PartCard({ part, vehicle, showVehicle = true }: { part: Part; ve
         {part.location && <span className="inline-flex min-w-0 items-center gap-1 text-meta text-secondary"><Icon name="pin" className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{part.location}</span></span>}
       </div>
     </div>
+  </>;
+
+  if (selectable) {
+    return <button type="button" aria-pressed={selected} onClick={() => onSelect?.(part.id)}
+      className={`card-link flex w-full items-center gap-3 p-3 pr-4 text-left ${selected ? "ring-2 ring-brand-navy" : ""}`}>
+      <span aria-hidden="true" className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-[1.5px] transition duration-fast ${selected ? "border-brand-navy bg-brand-navy text-white" : "border-tertiary/70 bg-surface text-transparent"}`}>
+        <Icon name="check" className="h-3.5 w-3.5" />
+      </span>
+      {body}
+    </button>;
+  }
+
+  return <Link href={`/parts/${part.id}`} className="card-link flex items-center gap-4 p-3 pr-4">
+    {body}
     <Icon name="chevron" className="h-4 w-4 shrink-0 text-tertiary" />
   </Link>;
 }

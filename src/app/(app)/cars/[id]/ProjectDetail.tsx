@@ -3,6 +3,7 @@
 import { useOptimistic, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { BulkDeleteBar, useSelection } from "@/components/BulkDelete";
 import { DeleteSheet, type Stake } from "@/components/DeleteSheet";
 import { Icon } from "@/components/Icon";
 import { PartCard } from "@/components/PartCard";
@@ -48,6 +49,8 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
   const [fileError, setFileError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteSheet, setDeleteSheet] = useState(0);
+  const [selecting, setSelecting] = useState(false);
+  const selection = useSelection();
   const done = checklist.filter(t => t.done).length;
   const summary = [vehicle.year, vehicle.color].filter(Boolean).join(" · ");
   const facts = ([["Year", vehicle.year], ["Colour", vehicle.color], ["Registration", vehicle.registration], ["VIN", vehicle.vin]] as const)
@@ -59,6 +62,11 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
     { value: "checklist", label: "Checklist" },
     { value: "details", label: "Details" },
   ];
+
+  function stopSelecting() {
+    setSelecting(false);
+    selection.clear();
+  }
 
   function save(change: TaskChange, action: () => Promise<{ error?: string }>) {
     setError(null);
@@ -84,7 +92,7 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
   return <>
     <NavBar back={{ href: "/cars", label: "Projects" }} title={carName(vehicle)} heading={false}
       action={<IconLink href={`/add?car=${id}`} label="Add part" icon="plus" variant="accent" className="-mr-2" />} />
-    <main className="page page-bottom pt-4 lg:pt-6">
+    <main className={`page page-bottom pt-4 lg:pt-6 ${selecting ? "pb-40 lg:pb-32" : ""}`}>
       <div className="space-y-4">
         {message && <Notice onDismiss={() => setMessage("")}>{message}</Notice>}
         {fileError && <Notice tone="error" onDismiss={() => setFileError(null)}>{fileError}</Notice>}
@@ -113,11 +121,17 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
 
             <section id="panel-parts" role="tabpanel" aria-labelledby="tab-parts" className={tab === "parts" ? "" : "hidden xl:block"}>
               <SectionHeading title="Parts" count={parts.length} action={<div className="flex items-center">
-                <Link href={`/cars/${id}/strip`} className={headingLink}><Icon name="checklist" className="h-4 w-4" />Add from list</Link>
-                {parts.length > 0 && <Link href={`/search?car=${id}`} className={headingLink}><Icon name="search" className="h-4 w-4" />Find</Link>}
+                {selecting
+                  ? <button type="button" onClick={stopSelecting} className={headingLink}>Cancel</button>
+                  : <>
+                    <Link href={`/cars/${id}/strip`} className={headingLink}><Icon name="checklist" className="h-4 w-4" />Add from list</Link>
+                    {parts.length > 0 && <Link href={`/search?car=${id}`} className={`${headingLink} hidden sm:inline-flex`}><Icon name="search" className="h-4 w-4" />Find</Link>}
+                    {canDelete && parts.length > 0 && <button type="button" onClick={() => setSelecting(true)} className={headingLink}><Icon name="check-circle" className="h-4 w-4" />Select</button>}
+                  </>}
               </div>} />
               {parts.length
-                ? <div className="space-y-3">{parts.map(p => <PartCard key={p.id} part={p} vehicle={vehicle} showVehicle={false} />)}</div>
+                ? <div className="space-y-3">{parts.map(p => <PartCard key={p.id} part={p} vehicle={vehicle} showVehicle={false}
+                  selectable={selecting} selected={selection.ids.has(p.id)} onSelect={selection.toggle} />)}</div>
                 : <div className="card"><EmptyState icon="box" title="No parts yet" description="Strip the car with the parts list, or add parts one at a time."
                   action={<div className="flex flex-wrap justify-center gap-3">
                     <ButtonLink href={`/cars/${id}/strip`}>Choose parts to strip</ButtonLink>
@@ -175,6 +189,11 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
         </div>
       </div>
     </main>
+
+    {selecting && <BulkDeleteBar parts={parts.filter(p => selection.ids.has(p.id))}
+      allSelected={parts.length > 0 && parts.every(p => selection.ids.has(p.id))}
+      onSelectAll={() => selection.set(parts.map(p => p.id))} onClear={selection.clear}
+      onDeleted={text => { stopSelecting(); setMessage(text); }} />}
 
     {canDelete && <DeleteProjectSheet key={deleteSheet} vehicle={vehicle} photo={photo} documents={documents} parts={parts} tasks={tasks} money={money}
       open={deleting} onClose={() => setDeleting(false)} />}

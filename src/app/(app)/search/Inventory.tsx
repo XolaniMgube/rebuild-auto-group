@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { BulkDeleteBar, useSelection } from "@/components/BulkDelete";
+import { Icon } from "@/components/Icon";
 import { PartCard } from "@/components/PartCard";
 import { PageHeader } from "@/components/Shell";
 import { Button, ButtonLink, EmptyState, Field, FilterButton, FilterTiles, Notice, SearchBar, SectionHeading, Select, Sheet } from "@/components/ui";
@@ -10,26 +12,32 @@ import { carName, plural } from "@/lib/format";
 import { CONDITION_OPTIONS, type Part, type Vehicle } from "@/lib/types";
 
 const STATUS_TITLE: Record<string, string> = { "": "All parts", in_stock: "In stock", reserved: "On hold" };
+const UNASSIGNED = "none"; // the "car" filter value for parts on no project
 
-export function Inventory({ parts, vehicles }: { parts: Part[]; vehicles: Vehicle[] }) {
+export function Inventory({ parts, vehicles, canDelete }: { parts: Part[]; vehicles: Vehicle[]; canDelete: boolean }) {
   const params = useSearchParams();
+  const selection = useSelection();
   const [query, setQuery] = useState("");
   const [vehicleId, setVehicleId] = useState(params.get("car") ?? "");
   const [condition, setCondition] = useState("");
   const [status, setStatus] = useState(params.get("status") ?? "");
   const [sort, setSort] = useState("recent");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [binned, setBinned] = useState(params.get("binned") === "part");
+  const [selecting, setSelecting] = useState(false);
+  const [message, setMessage] = useState(params.get("binned") === "part" ? "Part moved to Recently deleted" : "");
   const filterCount = Number(Boolean(condition)) + Number(Boolean(vehicleId)) + Number(sort !== "recent");
   const filtering = Boolean(query || vehicleId || condition || status || sort !== "recent");
   const byId = useMemo(() => new Map(vehicles.map(v => [v.id, v])), [vehicles]);
   const results = useMemo(() => {
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return parts.filter(p => (!vehicleId || p.vehicleId === vehicleId) && (!condition || p.condition === condition)
+    const onCar = (part: Part) => !vehicleId || (vehicleId === UNASSIGNED ? part.vehicleId === null : part.vehicleId === vehicleId);
+    return parts.filter(p => onCar(p) && (!condition || p.condition === condition)
       && (!status || p.status === status) && matches(p, p.vehicleId ? byId.get(p.vehicleId) : undefined, terms))
       .sort((a, b) => sort === "name" ? a.name.localeCompare(b.name) : b.createdAt.localeCompare(a.createdAt));
   }, [parts, byId, query, condition, vehicleId, status, sort]);
+  const selected = results.filter(part => selection.ids.has(part.id));
   const clear = () => { setQuery(""); setVehicleId(""); setCondition(""); setStatus(""); setSort("recent"); };
+  const stopSelecting = () => { setSelecting(false); selection.clear(); };
 
   // Links such as /search?car=… and /search?status=… (from the sidebar) set the filters.
   useEffect(() => {
@@ -39,6 +47,7 @@ export function Inventory({ parts, vehicles }: { parts: Part[]; vehicles: Vehicl
 
   const carSelect = <Select aria-label="Car project" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
     <option value="">All cars</option>
+    <option value={UNASSIGNED}>Unassigned</option>
     {vehicles.map(v => <option key={v.id} value={v.id}>{carName(v)}</option>)}
   </Select>;
   const conditionSelect = <Select aria-label="Condition" value={condition} onChange={e => setCondition(e.target.value)}>
@@ -49,6 +58,7 @@ export function Inventory({ parts, vehicles }: { parts: Part[]; vehicles: Vehicl
     <option value="recent">Newest first</option>
     <option value="name">Name: A–Z</option>
   </Select>;
+  const scope = vehicleId === UNASSIGNED ? " · Unassigned" : vehicleId ? ` · ${byId.get(vehicleId)?.model ?? "Project"}` : "";
 
   return <>
     <PageHeader eyebrow="Inventory" title="Parts" description="Search every part by name, car or shelf." />
@@ -65,9 +75,9 @@ export function Inventory({ parts, vehicles }: { parts: Part[]; vehicles: Vehicl
       </div>
     </div>
 
-    <main className="page page-bottom space-y-6 pt-2">
-      {binned && <Notice onDismiss={() => setBinned(false)}>
-        Part moved to Recently deleted. <Link href="/deleted" className="font-semibold underline underline-offset-2">View</Link>
+    <main className={`page page-bottom space-y-6 pt-2 ${selecting ? "pb-40 lg:pb-32" : ""}`}>
+      {message && <Notice onDismiss={() => setMessage("")}>
+        {message}. <Link href="/deleted" className="font-semibold underline underline-offset-2">View</Link>
       </Notice>}
       <FilterTiles label="Availability" value={status} onChange={setStatus} options={[
         { value: "", label: "All parts", count: parts.length, tone: "navy" },
@@ -77,12 +87,21 @@ export function Inventory({ parts, vehicles }: { parts: Part[]; vehicles: Vehicl
 
       <section>
         <SectionHeading title={STATUS_TITLE[status] ?? "Parts"} action={<div className="flex items-center gap-1 text-meta text-secondary">
-          <span role="status">{plural(results.length, "part")}{vehicleId && ` · ${byId.get(vehicleId)?.model ?? "Project"}`}</span>
-          {filtering && <button type="button" onClick={clear} className="-mr-1 ml-1 min-h-10 rounded-lg px-2 font-semibold text-brand-navy transition hover:bg-brand-navy-tint">Reset</button>}
+          {selecting
+            ? <button type="button" onClick={stopSelecting} className="min-h-10 rounded-lg px-2 text-[15px] font-semibold text-brand-navy transition hover:bg-brand-navy-tint">Cancel</button>
+            : <>
+              <span role="status">{plural(results.length, "part")}{scope}</span>
+              {filtering && <button type="button" onClick={clear} className="ml-1 min-h-10 rounded-lg px-2 font-semibold text-brand-navy transition hover:bg-brand-navy-tint">Reset</button>}
+              {canDelete && results.length > 0 && <button type="button" onClick={() => setSelecting(true)}
+                className="-mr-1 ml-1 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 text-[15px] font-semibold text-brand-navy transition hover:bg-brand-navy-tint">
+                <Icon name="check-circle" className="h-4 w-4" />Select
+              </button>}
+            </>}
         </div>} />
         {results.length
           ? <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-            {results.map(part => <PartCard key={part.id} part={part} vehicle={part.vehicleId ? byId.get(part.vehicleId) : null} />)}
+            {results.map(part => <PartCard key={part.id} part={part} vehicle={part.vehicleId ? byId.get(part.vehicleId) : null}
+              selectable={selecting} selected={selection.ids.has(part.id)} onSelect={selection.toggle} />)}
           </div>
           : <div className="card">
             {parts.length
@@ -91,6 +110,10 @@ export function Inventory({ parts, vehicles }: { parts: Part[]; vehicles: Vehicl
           </div>}
       </section>
     </main>
+
+    {selecting && <BulkDeleteBar parts={selected} allSelected={selected.length === results.length && results.length > 0}
+      onSelectAll={() => selection.set(results.map(part => part.id))} onClear={selection.clear}
+      onDeleted={text => { stopSelecting(); setMessage(text); }} />}
 
     <Sheet open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filters"
       footer={<>

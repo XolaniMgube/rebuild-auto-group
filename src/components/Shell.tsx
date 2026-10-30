@@ -70,12 +70,13 @@ function SidebarNav() {
   const counts = useCounts();
   const owner = useSession().role === "owner";
   const status = path.startsWith("/search") ? params.get("status") : null;
+  const car = path.startsWith("/search") ? params.get("car") : null;
 
   return <>
     <SidebarSection label="Workspace">
       <nav aria-label="Main navigation" className="space-y-1">
         <NavItem href="/search" icon="box" label="Parts" count={counts ? counts.inStock + counts.onHold : undefined}
-          active={(path.startsWith("/search") && !status) || path.startsWith("/parts/")} />
+          active={(path.startsWith("/search") && !status && car !== "none") || path.startsWith("/parts/")} />
         <NavItem href="/cars" icon="car" label="Projects" count={counts?.projects} active={path.startsWith("/cars")} />
         {owner && <NavItem href="/deleted" icon="trash" label="Recently deleted" active={path.startsWith("/deleted")} />}
       </nav>
@@ -84,6 +85,7 @@ function SidebarNav() {
       <nav aria-label="Quick filters" className="space-y-1">
         <NavItem href="/search?status=in_stock" dot="bg-success" label="In stock" count={counts?.inStock} active={status === "in_stock"} />
         <NavItem href="/search?status=reserved" dot="bg-warning" label="On hold" count={counts?.onHold} active={status === "reserved"} />
+        <NavItem href="/search?car=none" dot="bg-tertiary" label="Unassigned" count={counts?.unassigned} active={car === "none"} />
       </nav>
     </SidebarSection>
   </>;

@@ -11,7 +11,7 @@ import {
   Button, ButtonLink, ConditionBadge, DetailList, DetailRow, DisclosureCard, Field, FieldSet, FormSection, IconButton, InlineError, Input,
   MoneyInput, Notice, RowLink, SectionHeading, SegmentedControl, Select, Sheet, Spinner, StatusBadge, Textarea, useConfirm,
 } from "@/components/ui";
-import { binPart, removePartImage, sellPart, setPartHold, undoSale, updatePart } from "@/lib/actions";
+import { binParts, removePartImage, sellPart, setPartHold, undoSale, updatePart } from "@/lib/actions";
 import { discardPreview, prepareAll, preparePhoto } from "@/lib/files";
 import { carName, longDate, parseRands, plural, rands, shortDate, timeAgo } from "@/lib/format";
 import { ACTIVE_STATUSES, CONDITION_LABEL, CONDITION_OPTIONS, MAX_PART_PHOTOS, type Part, type SoldItem, type Vehicle } from "@/lib/types";
@@ -233,11 +233,12 @@ export function PartDetail({ part, vehicles, sales, canDelete, notice }: { part:
       onSold={text => { setSelling(false); setMessage(text); }} />}
 
     {canDelete && <DeleteSheet key={`delete-${deleteSheet}`} open={deleting} onClose={() => setDeleting(false)}
-      title="Delete this part?" description={part.name} name={part.name} stakes={stakes} blocked={deleteBlocked} confirmLabel="Delete part"
-      onConfirm={async typed => {
-        const result = await binPart(part.id, typed);
-        if (!result.error) router.push(vehicle ? `/cars/${vehicle.id}?binned=part` : "/search?binned=part");
-        return result;
+      title="Delete this part?" description={part.name} stakes={stakes} blocked={deleteBlocked} requireName={false} confirmLabel="Delete part"
+      onConfirm={async () => {
+        const result = await binParts([part.id]);
+        if ("error" in result) return result;
+        router.push(vehicle ? `/cars/${vehicle.id}?binned=part` : "/search?binned=part");
+        return {};
       }} />}
   </>;
 }

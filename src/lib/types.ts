@@ -118,6 +118,7 @@ export interface ProjectMoney {
 export interface WorkspaceCounts {
   inStock: number;
   onHold: number;
+  unassigned: number;
   projects: number;
 }
 

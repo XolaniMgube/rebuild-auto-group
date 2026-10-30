@@ -471,6 +471,7 @@ export async function removeTask(id: string): Promise<Outcome> {
 
 const DAY_MS = 86_400_000;
 const PURGE_BATCH = 100;
+const BULK_LIMIT = 300; // same cap as the database function
 
 /** Same rule as the database: case and spacing don't matter. */
 function sameName(typed: unknown, actual: string) {
@@ -480,15 +481,21 @@ function sameName(typed: unknown, actual: string) {
 
 const typedText = (value: unknown) => (typeof value === "string" ? value.slice(0, 200) : "");
 
-/** Moves a part to Recently deleted. The database re-checks the typed name and refuses parts with sales. */
-export async function binPart(partId: string, typedName: string): Promise<Outcome> {
+/**
+ * Moves parts to Recently deleted, one or many. Parts with sales recorded stay
+ * put and come back in `kept` so the screen can say which were left behind.
+ */
+export async function binParts(partIds: string[]): Promise<{ binned: number; kept: string[] } | { error: string }> {
   return guard(async () => {
-    const id = uuid(partId, "Part");
+    if (!Array.isArray(partIds) || !partIds.length) throw new InvalidInput("Choose at least one part.");
+    if (partIds.length > BULK_LIMIT) throw new InvalidInput(`Delete up to ${BULK_LIMIT} parts at a time.`);
+    const targets = partIds.map((id) => uuid(id, "Part"));
     const supabase = await createClient();
-    const { error } = await supabase.rpc("bin_part", { target: id, typed_name: typedText(typedName) });
+    const { data, error } = await supabase.rpc("bin_parts", { targets });
     if (error) return failed(error);
     refresh();
-    return {};
+    const result = (data ?? {}) as { binned?: number; kept?: string[] | null };
+    return { binned: result.binned ?? 0, kept: result.kept ?? [] };
   });
 }
 

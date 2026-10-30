@@ -509,6 +509,7 @@ export type Database = {
         Args: { target: string; typed_name: string }
         Returns: undefined
       }
+      bin_parts: { Args: { targets: string[] }; Returns: Json }
       bin_vehicle: {
         Args: { keep_parts: boolean; target: string; typed_name: string }
         Returns: undefined

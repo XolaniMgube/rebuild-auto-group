@@ -215,13 +215,14 @@ export async function getWorkspaceCounts(): Promise<WorkspaceCounts | null> {
   try {
     const supabase = await createClient();
     const head = { count: "exact", head: true } as const;
-    const [inStock, onHold, projects] = await Promise.all([
+    const [inStock, onHold, unassigned, projects] = await Promise.all([
       supabase.from("parts").select("id", head).eq("status", "in_stock").is("deleted_at", null),
       supabase.from("parts").select("id", head).eq("status", "reserved").is("deleted_at", null),
+      supabase.from("parts").select("id", head).in("status", ACTIVE_STATUSES).is("vehicle_id", null).is("deleted_at", null),
       supabase.from("vehicles").select("id", head).is("deleted_at", null),
     ]);
-    if (inStock.error || onHold.error || projects.error) return null;
-    return { inStock: inStock.count ?? 0, onHold: onHold.count ?? 0, projects: projects.count ?? 0 };
+    if (inStock.error || onHold.error || unassigned.error || projects.error) return null;
+    return { inStock: inStock.count ?? 0, onHold: onHold.count ?? 0, unassigned: unassigned.count ?? 0, projects: projects.count ?? 0 };
   } catch {
     return null;
   }
