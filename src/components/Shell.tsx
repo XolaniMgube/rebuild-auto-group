@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { MONEY_PAGE } from "@/lib/features";
 import { Icon } from "./Icon";
 import { BrandLogo } from "./Logo";
 import { useCounts, useSession } from "./Session";
@@ -31,9 +32,9 @@ export function Sidebar() {
   const session = useSession();
 
   return <aside className="fixed inset-y-0 left-0 z-30 hidden w-sidebar flex-col border-r border-line/80 bg-surface shadow-[12px_0_40px_-32px_rgb(15_23_42/0.35)] lg:flex">
-    <div className="flex h-[76px] shrink-0 items-center border-b border-separator px-7">
+    <div className="flex h-header shrink-0 items-center border-b border-line/70 px-7">
       <Link href="/search" aria-label="Rebuild Auto Group home" className="flex items-center">
-        <BrandLogo priority sizes="104px" className="w-[104px]" />
+        <BrandLogo priority size="xl" />
       </Link>
     </div>
 
@@ -73,11 +74,13 @@ function SidebarNav() {
   const car = path.startsWith("/search") ? params.get("car") : null;
 
   return <>
+    {owner && <Housekeeping />}
     <SidebarSection label="Workspace">
       <nav aria-label="Main navigation" className="space-y-1">
         <NavItem href="/search" icon="box" label="Parts" count={counts ? counts.inStock + counts.onHold : undefined}
           active={(path.startsWith("/search") && !status && car !== "none") || path.startsWith("/parts/")} />
         <NavItem href="/cars" icon="car" label="Projects" count={counts?.projects} active={path.startsWith("/cars")} />
+        {owner && MONEY_PAGE && <NavItem href="/money" icon="wallet" label="Money" active={path.startsWith("/money")} />}
         {owner && <NavItem href="/deleted" icon="trash" label="Recently deleted" active={path.startsWith("/deleted")} />}
       </nav>
     </SidebarSection>
@@ -159,27 +162,58 @@ export function PageHeader({ eyebrow, title, count, description, actions }: {
   description?: string;
   actions?: ReactNode;
 }) {
-  return <header className="border-b border-line/70 bg-surface" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-    <div className="page pb-5 pt-2 lg:pb-8 lg:pt-10">
-      <div className="flex h-12 items-center justify-between lg:hidden">
-        <Link href="/search" aria-label="Rebuild Auto Group home" className="-ml-1 flex h-11 items-center px-1">
-          <BrandLogo priority sizes="88px" className="w-[88px]" />
+  return <>
+    {/* Phones: the brand gets its own white bar, the title sits on the page below. */}
+    <div className="border-b border-line/70 bg-surface lg:hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <div className="page flex h-16 items-center justify-between">
+        <Link href="/search" aria-label="Rebuild Auto Group home" className="-ml-1 flex h-12 items-center px-1">
+          <BrandLogo priority size="md" />
         </Link>
         <AccountButton />
       </div>
-      <div className="mt-3 flex items-end justify-between gap-6 lg:mt-0">
+    </div>
+    {/* Desktop: breadcrumbs and the account menu, level with the sidebar's logo block. */}
+    <div className="hidden h-header border-b border-line/70 bg-surface lg:block">
+      <div className="page flex h-full items-center justify-between gap-6">
+        <Breadcrumbs trail={[eyebrow, title]} />
+        <AccountButton menu />
+      </div>
+    </div>
+    <header className="page pb-4 pt-5 lg:pb-6 lg:pt-8">
+      <div className="flex items-end justify-between gap-6">
         <div className="min-w-0">
-          {eyebrow && <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-brand-navy">{eyebrow}</p>}
-          <div className="mt-1 flex items-center gap-2.5">
-            <h1 className="truncate text-large-title lg:text-[36px]">{title}</h1>
+          {eyebrow && <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-brand-navy lg:hidden">{eyebrow}</p>}
+          <div className="mt-1 flex items-center gap-2.5 lg:mt-0">
+            <h1 className="truncate text-large-title lg:text-[34px]">{title}</h1>
             {count !== undefined && <CountBadge>{count}</CountBadge>}
           </div>
           {description && <p className="mt-1.5 max-w-xl text-body text-secondary">{description}</p>}
         </div>
         {actions && <div className="hidden shrink-0 items-center gap-3 lg:flex">{actions}</div>}
       </div>
-    </div>
-  </header>;
+    </header>
+  </>;
+}
+
+/** Home › section › page, for the top bar on desktop. */
+function Breadcrumbs({ trail }: { trail: (string | undefined)[] }) {
+  const items = trail.filter((item): item is string => Boolean(item));
+  return <nav aria-label="Breadcrumb">
+    <ol className="flex items-center gap-1.5 text-meta text-secondary">
+      <li>
+        <Link href="/search" aria-label="Home" className="grid h-9 w-9 place-items-center rounded-lg text-ink/70 transition hover:bg-subtle hover:text-ink">
+          <Icon name="home" className="h-[18px] w-[18px]" />
+        </Link>
+      </li>
+      {items.map((item, index) => {
+        const current = index === items.length - 1;
+        return <li key={item} className="flex items-center gap-1.5">
+          <Icon name="chevron" className="h-3.5 w-3.5 text-tertiary" />
+          <span aria-current={current ? "page" : undefined} className={current ? "font-semibold text-ink" : ""}>{item}</span>
+        </li>;
+      })}
+    </ol>
+  </nav>;
 }
 
 /** Navigation bar for secondary screens: back link, title, optional action. */
@@ -204,13 +238,16 @@ export function FormFooter({ children }: { children: ReactNode }) {
   </div>;
 }
 
-function AccountButton() {
+/** The avatar opens the account sheet; with `menu`, it shows a chevron like a desktop menu. */
+function AccountButton({ menu = false }: { menu?: boolean }) {
   const session = useSession();
   const [open, setOpen] = useState(false);
 
   return <>
-    <button type="button" aria-label="Account" onClick={() => setOpen(true)} className="pressable grid h-11 w-11 place-items-center rounded-full">
+    <button type="button" aria-label="Account" onClick={() => setOpen(true)}
+      className={`pressable flex h-11 items-center gap-1.5 rounded-full ${menu ? "pl-0.5 pr-2 hover:bg-subtle" : "w-11 justify-center"}`}>
       <Avatar name={session.name} small />
+      {menu && <Icon name="down" className="h-4 w-4 text-secondary" />}
     </button>
     <Sheet open={open} onClose={() => setOpen(false)} title="Account">
       <div className="flex items-center gap-3.5">
@@ -221,7 +258,12 @@ function AccountButton() {
         </div>
         <Badge tone="info">{session.role === "owner" ? "Owner" : "Staff"}</Badge>
       </div>
-      {session.role === "owner" && <Link href="/deleted" onClick={() => setOpen(false)} className="card-link mt-6 flex min-h-14 items-center gap-3.5 px-4">
+      {session.role === "owner" && MONEY_PAGE && <Link href="/money" onClick={() => setOpen(false)} className="card-link mt-6 flex min-h-14 items-center gap-3.5 px-4">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-success-tint text-success"><Icon name="wallet" className="h-[18px] w-[18px]" /></span>
+        <span className="flex-1 text-body font-semibold">Money</span>
+        <Icon name="chevron" className="h-4 w-4 text-tertiary" />
+      </Link>}
+      {session.role === "owner" && <Link href="/deleted" onClick={() => setOpen(false)} className={`card-link ${MONEY_PAGE ? "mt-2" : "mt-6"} flex min-h-14 items-center gap-3.5 px-4`}>
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-red-tint text-brand-red"><Icon name="trash" className="h-[18px] w-[18px]" /></span>
         <span className="flex-1 text-body font-semibold">Recently deleted</span>
         <Icon name="chevron" className="h-4 w-4 text-tertiary" />
@@ -229,12 +271,39 @@ function AccountButton() {
       <form action="/auth/signout" method="post" className="mt-6">
         <Button type="submit" variant="secondary" block><Icon name="logout" />Sign out</Button>
       </form>
+      <form action="/auth/signout-all" method="post" className="mt-2">
+        <Button type="submit" variant="plain" block>Sign out on all devices</Button>
+      </form>
     </Sheet>
   </>;
 }
 
 function Avatar({ name, small = false }: { name: string; small?: boolean }) {
   return <span aria-hidden="true" className={`grid shrink-0 place-items-center rounded-full bg-brand-navy font-semibold uppercase text-white shadow-[0_4px_10px_-4px_rgb(18_63_148/0.6)] ${small ? "h-9 w-9 text-[14px]" : "h-10 w-10 text-[15px]"}`}>
-    {name.trim()[0] ?? "?"}
+    {initials(name)}
   </span>;
+}
+
+/** "Sipho Mitch" → "SM", "mitch" → "M". */
+function initials(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  return (words.length > 1 ? words[0][0] + words[words.length - 1][0] : words[0]?.[0] ?? "?").toUpperCase();
+}
+
+/**
+ * Clears items past their 30 days from Recently deleted, in the background
+ * and at most once a day per device, so no page waits on it.
+ */
+function Housekeeping() {
+  useEffect(() => {
+    const today = new Date().toDateString();
+    try {
+      if (localStorage.getItem("rag:housekeeping") === today) return;
+      localStorage.setItem("rag:housekeeping", today);
+    } catch {
+      return;
+    }
+    fetch("/api/housekeeping", { method: "POST" }).catch(() => {});
+  }, []);
+  return null;
 }

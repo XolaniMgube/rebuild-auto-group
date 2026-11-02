@@ -34,6 +34,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      business_expenses: {
+        Row: {
+          added_by: string | null
+          amount: number
+          category: string
+          created_at: string
+          description: string | null
+          id: string
+          paid_by: string | null
+          spent_on: string
+        }
+        Insert: {
+          added_by?: string | null
+          amount: number
+          category: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          paid_by?: string | null
+          spent_on?: string
+        }
+        Update: {
+          added_by?: string | null
+          amount?: number
+          category?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          paid_by?: string | null
+          spent_on?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_expenses_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_expenses_paid_by_fkey"
+            columns: ["paid_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       part_images: {
         Row: {
           added_by: string | null
@@ -72,6 +120,61 @@ export type Database = {
             columns: ["part_id"]
             isOneToOne: false
             referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      partner_transfers: {
+        Row: {
+          added_by: string | null
+          amount: number
+          created_at: string
+          from_owner: string | null
+          id: string
+          note: string | null
+          to_owner: string | null
+          transferred_on: string
+        }
+        Insert: {
+          added_by?: string | null
+          amount: number
+          created_at?: string
+          from_owner?: string | null
+          id?: string
+          note?: string | null
+          to_owner?: string | null
+          transferred_on?: string
+        }
+        Update: {
+          added_by?: string | null
+          amount?: number
+          created_at?: string
+          from_owner?: string | null
+          id?: string
+          note?: string | null
+          to_owner?: string | null
+          transferred_on?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partner_transfers_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "partner_transfers_from_owner_fkey"
+            columns: ["from_owner"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "partner_transfers_to_owner_fkey"
+            columns: ["to_owner"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -255,6 +358,7 @@ export type Database = {
           price_at_sale: number
           quantity: number
           sale_id: string
+          vehicle_id: string | null
         }
         Insert: {
           cost_at_sale?: number | null
@@ -264,6 +368,7 @@ export type Database = {
           price_at_sale: number
           quantity?: number
           sale_id: string
+          vehicle_id?: string | null
         }
         Update: {
           cost_at_sale?: number | null
@@ -273,6 +378,7 @@ export type Database = {
           price_at_sale?: number
           quantity?: number
           sale_id?: string
+          vehicle_id?: string | null
         }
         Relationships: [
           {
@@ -289,6 +395,13 @@ export type Database = {
             referencedRelation: "sales"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "sale_items_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       sales: {
@@ -298,6 +411,7 @@ export type Database = {
           customer_phone: string | null
           id: string
           notes: string | null
+          received_by: string | null
           sale_date: string
           sold_by: string | null
           total: number
@@ -308,6 +422,7 @@ export type Database = {
           customer_phone?: string | null
           id?: string
           notes?: string | null
+          received_by?: string | null
           sale_date?: string
           sold_by?: string | null
           total: number
@@ -318,11 +433,19 @@ export type Database = {
           customer_phone?: string | null
           id?: string
           notes?: string | null
+          received_by?: string | null
           sale_date?: string
           sold_by?: string | null
           total?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "sales_received_by_fkey"
+            columns: ["received_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "sales_sold_by_fkey"
             columns: ["sold_by"]
@@ -388,6 +511,7 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          paid_by: string | null
           spent_on: string
           vehicle_id: string
         }
@@ -398,6 +522,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          paid_by?: string | null
           spent_on?: string
           vehicle_id: string
         }
@@ -408,6 +533,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          paid_by?: string | null
           spent_on?: string
           vehicle_id?: string
         }
@@ -420,7 +546,72 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "vehicle_expenses_paid_by_fkey"
+            columns: ["paid_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "vehicle_expenses_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vehicle_income: {
+        Row: {
+          added_by: string | null
+          amount: number
+          created_at: string
+          description: string | null
+          id: string
+          kind: string
+          received_by: string | null
+          received_on: string
+          vehicle_id: string
+        }
+        Insert: {
+          added_by?: string | null
+          amount: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          kind: string
+          received_by?: string | null
+          received_on?: string
+          vehicle_id: string
+        }
+        Update: {
+          added_by?: string | null
+          amount?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          kind?: string
+          received_by?: string | null
+          received_on?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicle_income_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicle_income_received_by_fkey"
+            columns: ["received_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicle_income_vehicle_id_fkey"
             columns: ["vehicle_id"]
             isOneToOne: false
             referencedRelation: "vehicles"
@@ -439,6 +630,7 @@ export type Database = {
           make: string
           model: string
           notes: string | null
+          paid_by: string | null
           photo_path: string | null
           purchase_date: string
           purchase_price: number
@@ -457,6 +649,7 @@ export type Database = {
           make: string
           model: string
           notes?: string | null
+          paid_by?: string | null
           photo_path?: string | null
           purchase_date?: string
           purchase_price?: number
@@ -475,6 +668,7 @@ export type Database = {
           make?: string
           model?: string
           notes?: string | null
+          paid_by?: string | null
           photo_path?: string | null
           purchase_date?: string
           purchase_price?: number
@@ -494,6 +688,13 @@ export type Database = {
           {
             foreignKeyName: "vehicles_deleted_by_fkey"
             columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicles_paid_by_fkey"
+            columns: ["paid_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -520,11 +721,24 @@ export type Database = {
           customer_phone?: string
           items: Json
           notes?: string
+          received_by?: string
+          sold_on?: string
         }
         Returns: string
       }
       restore_part: { Args: { target: string }; Returns: undefined }
       restore_vehicle: { Args: { target: string }; Returns: undefined }
+      search_parts: {
+        Args: {
+          car?: string
+          page_offset?: number
+          page_size?: number
+          q?: string
+          sort?: string
+          status_filter?: string
+        }
+        Returns: Json
+      }
       set_member_role: {
         Args: {
           new_role: Database["public"]["Enums"]["app_role"]

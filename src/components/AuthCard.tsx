@@ -55,7 +55,7 @@ export function AuthCard({ title, description, children }: { title: string; desc
 // The logo is red and navy, so it sits on a white chip over the navy backdrop.
 function LogoChip({ size }: { size: "sm" | "lg" }) {
   return <span className={`inline-flex self-start rounded-2xl bg-white shadow-raised ${size === "lg" ? "px-4 py-3" : "px-3 py-2"}`}>
-    <BrandLogo priority sizes={size === "lg" ? "120px" : "92px"} className={size === "lg" ? "w-[120px]" : "w-[92px]"} />
+    <BrandLogo priority size={size === "lg" ? "lg" : "md"} />
   </span>;
 }
 

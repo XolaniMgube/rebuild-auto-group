@@ -41,7 +41,7 @@ export function DeleteSheet({ open, onClose, title, description, name = "", stak
     setError(null);
     startPending(async () => {
       const result = await onConfirm(typed);
-      if (result.error) setError(result.error);
+      startPending(() => { if (result.error) setError(result.error); });
     });
   }
 

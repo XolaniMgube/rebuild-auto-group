@@ -5,7 +5,7 @@ export function LoadingScreen({ fullScreen = false }: { fullScreen?: boolean }) 
     className={`grid place-items-center bg-canvas ${fullScreen ? "min-h-dvh" : "min-h-[240px] flex-1"}`}>
     <div className="brand-loader" aria-hidden="true">
       <div className="brand-loader-ring" />
-      <BrandIcon priority className="brand-loader-icon h-16 w-16" />
+      <BrandIcon priority className="brand-loader-icon h-20 w-20" />
     </div>
   </div>;
 }

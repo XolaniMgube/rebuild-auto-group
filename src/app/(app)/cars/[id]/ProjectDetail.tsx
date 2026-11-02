@@ -11,7 +11,7 @@ import { NavBar } from "@/components/Shell";
 import { Button, ButtonLink, CheckCircle, DetailList, DetailRow, EmptyState, IconButton, IconLink, InlineError, Input, Notice, SectionHeading, SegmentedControl } from "@/components/ui";
 import { addTask, binVehicle, removeTask, setTaskDone } from "@/lib/actions";
 import { carName, plural, rands } from "@/lib/format";
-import type { Part, ProjectMoney as Money, ProjectTask, SignedPhoto, Vehicle, VehicleDocument } from "@/lib/types";
+import type { Owner, Part, ProjectMoney as Money, ProjectTask, SignedPhoto, Vehicle, VehicleDocument } from "@/lib/types";
 import { CarDocuments, CarPhotoControls } from "./CarFiles";
 import { ProjectMoney } from "./ProjectMoney";
 
@@ -28,13 +28,14 @@ function applyChange(tasks: ProjectTask[], change: TaskChange) {
 
 const headingLink = "-mr-1 inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 text-[15px] font-semibold text-brand-navy transition hover:bg-brand-navy-tint";
 
-export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, canDelete, notice }: {
+export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, owners, canDelete, notice }: {
   vehicle: Vehicle;
   photo: SignedPhoto | null;
   documents: VehicleDocument[];
   parts: Part[];
   tasks: ProjectTask[];
   money: Money | null;
+  owners: Owner[];
   canDelete: boolean;
   notice: string;
 }) {
@@ -73,7 +74,7 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
     startTransition(async () => {
       applyOptimistic(change);
       const result = await action();
-      if (result.error) setError(result.error);
+      startTransition(() => { if (result.error) setError(result.error); });
     });
   }
 
@@ -130,7 +131,7 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
                   </>}
               </div>} />
               {parts.length
-                ? <div className="space-y-3">{parts.map(p => <PartCard key={p.id} part={p} vehicle={vehicle} showVehicle={false}
+                ? <div className="space-y-3">{parts.map(p => <PartCard key={p.id} part={p} vehicle={vehicle} showVehicle={false} from={`/cars/${id}`}
                   selectable={selecting} selected={selection.ids.has(p.id)} onSelect={selection.toggle} />)}</div>
                 : <div className="card"><EmptyState icon="box" title="No parts yet" description="Strip the car with the parts list, or add parts one at a time."
                   action={<div className="flex flex-wrap justify-center gap-3">
@@ -143,7 +144,7 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
           <div className="min-w-0 space-y-5">
             {money && <section id="panel-money" role="tabpanel" aria-labelledby="tab-money" className={tab === "money" ? "" : "hidden xl:block"}>
               <SectionHeading title="Money" />
-              <ProjectMoney vehicle={vehicle} money={money} stockValue={stockValue} onMessage={setMessage} />
+              <ProjectMoney vehicle={vehicle} money={money} stockValue={stockValue} owners={owners} onMessage={setMessage} />
             </section>}
 
             <section id="panel-checklist" role="tabpanel" aria-labelledby="tab-checklist" className={tab === "checklist" ? "" : "hidden xl:block"}>

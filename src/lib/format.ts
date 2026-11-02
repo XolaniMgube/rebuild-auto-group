@@ -24,6 +24,11 @@ export function randsSigned(n: number): string {
   return n > 0 ? `+${s}` : s;
 }
 
+/** Today's date in South Africa as YYYY-MM-DD, for date fields and defaults. */
+export function todayIso(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Johannesburg" });
+}
+
 export function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-ZA", {
     day: "numeric",

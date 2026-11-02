@@ -82,8 +82,8 @@ Add logos to `public/logos/` and other images to `public/images/`.
 Reference them from the site root: `public/logos/logo.svg` becomes `/logos/logo.svg`,
 and `public/images/car.jpg` becomes `/images/car.jpg`. Omit `public` from asset URLs.
 
-The app uses `public/logos/RAG Logo.png` for the official logo and
-`public/logos/Logo icon.png` for loading screens. Browser and home-screen icons
+The logo is built in `src/components/Logo.tsx` from `public/logos/icon-transparent.png`
+and live "RAG" lettering in Archivo Black, so spacing stays exact at every size. The same icon is used for loading screens. Browser and home-screen icons
 are generated from the icon PNG when the app builds.
 
 ## Design system

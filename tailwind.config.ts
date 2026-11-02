@@ -43,6 +43,7 @@ const config: Config = {
       spacing: {
         control: "var(--control-height)",
         nav: "var(--nav-height)",
+        header: "var(--header-height)",
         sidebar: "var(--sidebar-width)",
       },
       borderRadius: {

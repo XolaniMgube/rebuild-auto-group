@@ -141,7 +141,10 @@ export async function createVehicle(input: VehicleInput): Promise<Created> {
       purchase_price: input.purchasePrice == null ? 0 : money(input.purchasePrice, "Purchase price"),
     };
     const supabase = await createClient();
-    const { data, error } = await supabase.from("vehicles").insert(row).select("id").single();
+    // Whoever enters the price is taken to have paid it; it can be changed on the Money tab.
+    const { data: claims } = await supabase.auth.getClaims();
+    const paid_by = row.purchase_price > 0 ? claims?.claims?.sub ?? null : null;
+    const { data, error } = await supabase.from("vehicles").insert({ ...row, paid_by }).select("id").single();
     if (error) return failed(error);
     refresh();
     return { id: data.id };
@@ -357,16 +360,47 @@ export async function setTaskDone(id: string, done: boolean): Promise<Outcome> {
 
 const EXPENSE_CATEGORIES = ["transport", "labour", "repairs", "other"];
 
-export type ExpenseInput = { category: string; amount: number; description: string | null };
-export type SaleInput = { price: number; customerName: string | null; customerPhone: string | null };
+export type ExpenseInput = { category: string; amount: number; description: string | null; spentOn?: string | null; paidBy?: string | null };
+export type SaleInput = { price: number; customerName: string | null; customerPhone: string | null; soldOn?: string | null; receivedBy?: string | null };
+export type IncomeInput = { kind: string; amount: number; description: string | null; receivedOn?: string | null; receivedBy?: string | null };
+export type OverheadInput = { category: string; amount: number; description: string | null; spentOn?: string | null; paidBy?: string | null };
+export type TransferInput = { from: string; to: string; amount: number; on?: string | null; note?: string | null };
+
+const INCOME_KINDS = ["scrap", "other"];
+const OVERHEAD_CATEGORIES = ["rent", "fuel", "tools", "adverts", "wages", "other"];
+
+/** A calendar day as YYYY-MM-DD, not in the future (South African time); blank means today. */
+function pastDate(value: unknown, label: string) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value))) throw new InvalidInput(`${label} is invalid.`);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Johannesburg" });
+  if (value > today) throw new InvalidInput(`${label} can't be in the future.`);
+  if (value < "2000-01-01") throw new InvalidInput(`${label} is too far back.`);
+  return value;
+}
+
+/** An owner's id, or null. The database checks the person really is an owner. */
+const ownerId = (value: unknown, label: string) => (value == null || value === "" ? null : uuid(value, label));
+
+function positive(value: unknown, label: string) {
+  const amount = money(value, label);
+  if (amount <= 0) throw new InvalidInput(`${label} must be more than R 0.`);
+  return amount;
+}
 export type TemplatePartInput = { name: string; price: number | null };
 
-export async function setPurchasePrice(vehicleId: string, amount: number): Promise<Outcome> {
+export async function setPurchasePrice(vehicleId: string, amount: number, details: { purchaseDate?: string | null; paidBy?: string | null } = {}): Promise<Outcome> {
   return guard(async () => {
     const id = uuid(vehicleId, "Car");
     const purchase_price = money(amount, "Purchase price");
+    const purchase_date = pastDate(details.purchaseDate, "Purchase date");
+    const update = {
+      purchase_price,
+      paid_by: ownerId(details.paidBy, "Paid by"),
+      ...(purchase_date ? { purchase_date } : {}),
+    };
     const supabase = await createClient();
-    const { data, error } = await supabase.from("vehicles").update({ purchase_price }).eq("id", id).select("id");
+    const { data, error } = await supabase.from("vehicles").update(update).eq("id", id).select("id");
     if (error) return failed(error);
     if (!data.length) return { error: "This project no longer exists. Refresh and try again." };
     refresh();
@@ -378,12 +412,17 @@ export async function addExpense(vehicleId: string, input: ExpenseInput): Promis
   return guard(async () => {
     const vehicle_id = uuid(vehicleId, "Car");
     if (!EXPENSE_CATEGORIES.includes(input.category)) throw new InvalidInput("Choose what the expense was for.");
-    const amount = money(input.amount, "Amount");
-    if (amount <= 0) throw new InvalidInput("Amount must be more than R 0.");
+    const amount = positive(input.amount, "Amount");
+    const spent_on = pastDate(input.spentOn, "Date");
     const supabase = await createClient();
-    const { error } = await supabase
-      .from("vehicle_expenses")
-      .insert({ vehicle_id, category: input.category, amount, description: optionalText(input.description, "Note", 120) });
+    const { error } = await supabase.from("vehicle_expenses").insert({
+      vehicle_id,
+      category: input.category,
+      amount,
+      description: optionalText(input.description, "Note", 120),
+      paid_by: ownerId(input.paidBy, "Paid by"),
+      ...(spent_on ? { spent_on } : {}),
+    });
     if (error) return failed(error);
     refresh();
     return {};
@@ -411,6 +450,8 @@ export async function sellPart(partId: string, input: SaleInput): Promise<Outcom
       items: [{ part_id: id, price, quantity: 1 }],
       customer_name: optionalText(input.customerName, "Customer", 120) ?? undefined,
       customer_phone: optionalText(input.customerPhone, "Phone", 30) ?? undefined,
+      sold_on: pastDate(input.soldOn, "Sale date") ?? undefined,
+      received_by: ownerId(input.receivedBy, "Money holder") ?? undefined,
     });
     if (error) return failed(error);
     refresh();
@@ -602,8 +643,8 @@ export async function deleteVehicleForever(vehicleId: string, typedName: string)
 }
 
 /**
- * Deletes for good anything binned more than BIN_DAYS ago. Runs when an owner
- * opens Recently deleted (row level security gives staff nothing to delete).
+ * Deletes for good anything binned more than BIN_DAYS ago. Called once a day
+ * from an owner's device (row level security gives staff nothing to delete).
  * Housekeeping only: it never throws and never revalidates.
  */
 export async function purgeExpiredItems(): Promise<void> {
@@ -619,4 +660,97 @@ export async function purgeExpiredItems(): Promise<void> {
   } catch (error) {
     console.error(error);
   }
+}
+
+/* --------------------------------------------------------------------------
+   Business money: scrap and other income, running costs, settling up
+   -------------------------------------------------------------------------- */
+
+export async function addIncome(vehicleId: string, input: IncomeInput): Promise<Outcome> {
+  return guard(async () => {
+    const vehicle_id = uuid(vehicleId, "Car");
+    if (!INCOME_KINDS.includes(input.kind)) throw new InvalidInput("Choose what the money was for.");
+    const received_on = pastDate(input.receivedOn, "Date");
+    const supabase = await createClient();
+    const { error } = await supabase.from("vehicle_income").insert({
+      vehicle_id,
+      kind: input.kind,
+      amount: positive(input.amount, "Amount"),
+      description: optionalText(input.description, "Note", 120),
+      received_by: ownerId(input.receivedBy, "Received by"),
+      ...(received_on ? { received_on } : {}),
+    });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+export async function removeIncome(incomeId: string): Promise<Outcome> {
+  return guard(async () => {
+    const supabase = await createClient();
+    const { error } = await supabase.from("vehicle_income").delete().eq("id", uuid(incomeId, "Income"));
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+export async function addOverhead(input: OverheadInput): Promise<Outcome> {
+  return guard(async () => {
+    if (!OVERHEAD_CATEGORIES.includes(input.category)) throw new InvalidInput("Choose what the cost was for.");
+    const spent_on = pastDate(input.spentOn, "Date");
+    const supabase = await createClient();
+    const { error } = await supabase.from("business_expenses").insert({
+      category: input.category,
+      amount: positive(input.amount, "Amount"),
+      description: optionalText(input.description, "Note", 120),
+      paid_by: ownerId(input.paidBy, "Paid by"),
+      ...(spent_on ? { spent_on } : {}),
+    });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+export async function removeOverhead(overheadId: string): Promise<Outcome> {
+  return guard(async () => {
+    const supabase = await createClient();
+    const { error } = await supabase.from("business_expenses").delete().eq("id", uuid(overheadId, "Cost"));
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+/** Money one owner hands the other to even up. */
+export async function recordTransfer(input: TransferInput): Promise<Outcome> {
+  return guard(async () => {
+    const from_owner = uuid(input.from, "From");
+    const to_owner = uuid(input.to, "To");
+    if (from_owner === to_owner) throw new InvalidInput("Choose two different people.");
+    const transferred_on = pastDate(input.on, "Date");
+    const supabase = await createClient();
+    const { error } = await supabase.from("partner_transfers").insert({
+      from_owner,
+      to_owner,
+      amount: positive(input.amount, "Amount"),
+      note: optionalText(input.note, "Note", 120),
+      ...(transferred_on ? { transferred_on } : {}),
+    });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+export async function removeTransfer(transferId: string): Promise<Outcome> {
+  return guard(async () => {
+    const supabase = await createClient();
+    const { error } = await supabase.from("partner_transfers").delete().eq("id", uuid(transferId, "Payment"));
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
 }

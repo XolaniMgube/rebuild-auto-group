@@ -45,6 +45,8 @@
   /* Sizing */
   --control-height: 52px;
   --nav-height: 72px;
+  /* Desktop top bar; the sidebar's logo block matches it so their bottom borders line up. */
+  --header-height: 76px;
   --sidebar-width: 272px;
 
   /* Motion */
