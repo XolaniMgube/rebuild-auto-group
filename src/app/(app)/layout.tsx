@@ -1,9 +1,11 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AuthCard } from "@/components/AuthCard";
 import { SessionProvider } from "@/components/Session";
 import { BottomNav, Sidebar } from "@/components/Shell";
 import { Button, ConfirmProvider } from "@/components/ui";
 import { getWorkspaceCounts } from "@/lib/data";
+import { isUnlocked, LOCK_PATH, UNLOCK_COOKIE } from "@/lib/lock";
 import { createClient } from "@/lib/supabase/server";
 
 // Checked again here rather than trusting middleware alone.
@@ -11,6 +13,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   if (!data?.claims) redirect("/login");
+  // Middleware normally catches this; checked again here so no page can slip past.
+  if (!isUnlocked((await cookies()).get(UNLOCK_COOKIE)?.value, data.claims.session_id)) redirect(LOCK_PATH);
 
   const [{ data: profile, error }, counts] = await Promise.all([
     supabase.from("profiles").select("name, email, role").eq("id", data.claims.sub).maybeSingle(),
@@ -30,7 +34,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <SessionProvider session={{ name: profile.name || profile.email, email: profile.email, role: profile.role }} counts={counts}>
+    <SessionProvider session={{ id: data.claims.sub, name: profile.name || profile.email, email: profile.email, role: profile.role }} counts={counts}>
       <ConfirmProvider>
         <Sidebar />
         <div className="min-h-dvh lg:pl-sidebar">{children}</div>

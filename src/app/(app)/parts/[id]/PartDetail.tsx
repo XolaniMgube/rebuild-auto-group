@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { MediaPicker, RemoveButton } from "@/components/Attachments";
 import { DeleteSheet, type Stake } from "@/components/DeleteSheet";
+import { OwnerSelect, useDefaultOwner } from "@/components/MoneyEntry";
 import { Icon } from "@/components/Icon";
 import { partKind } from "@/components/PartThumb";
 import { NavBar } from "@/components/Shell";
@@ -11,12 +12,21 @@ import {
   Button, ButtonLink, ConditionBadge, DetailList, DetailRow, DisclosureCard, Field, FieldSet, FormSection, IconButton, InlineError, Input,
   MoneyInput, Notice, RowLink, SectionHeading, SegmentedControl, Select, Sheet, Spinner, StatusBadge, Textarea, useConfirm,
 } from "@/components/ui";
-import { binPart, removePartImage, sellPart, setPartHold, undoSale, updatePart } from "@/lib/actions";
+import { binParts, removePartImage, sellPart, setPartHold, undoSale, updatePart } from "@/lib/actions";
 import { discardPreview, prepareAll, preparePhoto } from "@/lib/files";
-import { carName, longDate, parseRands, plural, rands, shortDate, timeAgo } from "@/lib/format";
-import { ACTIVE_STATUSES, CONDITION_LABEL, CONDITION_OPTIONS, MAX_PART_PHOTOS, type Part, type SoldItem, type Vehicle } from "@/lib/types";
+import { carName, longDate, parseRands, plural, rands, shortDate, timeAgo, todayIso } from "@/lib/format";
+import { withParam } from "@/lib/return-to";
+import { ACTIVE_STATUSES, CONDITION_LABEL, CONDITION_OPTIONS, MAX_PART_PHOTOS, type Owner, type Part, type SoldItem, type Vehicle } from "@/lib/types";
 
-export function PartDetail({ part, vehicles, sales, canDelete, notice }: { part: Part; vehicles: Vehicle[]; sales: SoldItem[] | null; canDelete: boolean; notice: string }) {
+export function PartDetail({ part, vehicles, sales, owners, canDelete, back, notice }: {
+  part: Part;
+  owners: Owner[] | null; // owners only: who can hold the money from a sale
+  vehicles: Vehicle[];
+  sales: SoldItem[] | null;
+  canDelete: boolean;
+  back: { href: string; label: string };
+  notice: string;
+}) {
   const router = useRouter();
   const confirm = useConfirm();
   const [shot, setShot] = useState(0);
@@ -51,8 +61,10 @@ export function PartDetail({ part, vehicles, sales, canDelete, notice }: { part:
     setError(null);
     startHold(async () => {
       const result = await setPartHold(part.id, !held);
-      if (result.error) setError(result.error);
-      else setMessage(held ? "Hold released" : "Part on hold");
+      startHold(() => {
+        if (result.error) setError(result.error);
+        else setMessage(held ? "Hold released" : "Part on hold");
+      });
     });
   }
 
@@ -108,7 +120,7 @@ export function PartDetail({ part, vehicles, sales, canDelete, notice }: { part:
   }
 
   return <>
-    <NavBar back={{ href: "/search", label: "Parts" }} title={editing ? "Edit part" : part.name} heading={false} />
+    <NavBar back={back} title={editing ? "Edit part" : part.name} heading={false} />
     <main className="page page-bottom pt-4 lg:pt-6">
       <div className="space-y-4">
         {message && <Notice onDismiss={() => setMessage("")}>{message}</Notice>}
@@ -180,6 +192,7 @@ export function PartDetail({ part, vehicles, sales, canDelete, notice }: { part:
                         <p className="truncate text-meta text-secondary">
                           {shortDate(sale.soldAt)}
                           {sale.soldBy ? ` · Sold by ${sale.soldBy}${sale.customerName ? ` to ${sale.customerName}` : ""}` : sale.customerName ? ` · ${sale.customerName}` : ""}
+                          {sale.receivedBy && sale.receivedBy !== sale.soldBy && ` · money with ${sale.receivedBy}`}
                           {discounted && <span className="text-warning"> · asked {rands(sale.listPrice!)}</span>}
                         </p>
                       </div>
@@ -229,24 +242,27 @@ export function PartDetail({ part, vehicles, sales, canDelete, notice }: { part:
       </div>
     </main>
 
-    {active && <SellSheet key={sellSheet} part={part} open={selling} onClose={() => setSelling(false)}
+    {active && <SellSheet key={sellSheet} part={part} owners={owners} open={selling} onClose={() => setSelling(false)}
       onSold={text => { setSelling(false); setMessage(text); }} />}
 
     {canDelete && <DeleteSheet key={`delete-${deleteSheet}`} open={deleting} onClose={() => setDeleting(false)}
-      title="Delete this part?" description={part.name} name={part.name} stakes={stakes} blocked={deleteBlocked} confirmLabel="Delete part"
-      onConfirm={async typed => {
-        const result = await binPart(part.id, typed);
-        if (!result.error) router.push(vehicle ? `/cars/${vehicle.id}?binned=part` : "/search?binned=part");
-        return result;
+      title="Delete this part?" description={part.name} stakes={stakes} blocked={deleteBlocked} requireName={false} confirmLabel="Delete part"
+      onConfirm={async () => {
+        const result = await binParts([part.id]);
+        if ("error" in result) return result;
+        router.push(withParam(back.href, "binned", "part"));
+        return {};
       }} />}
   </>;
 }
 
 /** Records what the customer actually paid, which may be less than the asking price. */
-function SellSheet({ part, open, onClose, onSold }: { part: Part; open: boolean; onClose: () => void; onSold: (message: string) => void }) {
+function SellSheet({ part, owners, open, onClose, onSold }: { part: Part; owners: Owner[] | null; open: boolean; onClose: () => void; onSold: (message: string) => void }) {
   const [price, setPrice] = useState(part.price > 0 ? String(part.price) : "");
   const [customer, setCustomer] = useState("");
   const [phone, setPhone] = useState("");
+  const [soldOn, setSoldOn] = useState(todayIso());
+  const [holder, setHolder] = useState(useDefaultOwner(owners ?? []));
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
   const amount = parseRands(price);
@@ -256,11 +272,14 @@ function SellSheet({ part, open, onClose, onSold }: { part: Part; open: boolean;
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (amount === null || Number.isNaN(amount)) { setError("Enter what the customer paid, e.g. 300."); return; }
+    if (!soldOn || soldOn > todayIso()) { setError("Choose a sale date that isn't in the future."); return; }
     setError(null);
     startSaving(async () => {
-      const result = await sellPart(part.id, { price: amount, customerName: customer, customerPhone: phone });
-      if (result.error) setError(result.error);
-      else onSold(`Sold for ${rands(amount)}`);
+      const result = await sellPart(part.id, { price: amount, customerName: customer, customerPhone: phone, soldOn, receivedBy: owners?.length ? holder : null });
+      startSaving(() => {
+        if (result.error) setError(result.error);
+        else onSold(`Sold for ${rands(amount)}`);
+      });
     });
   }
 
@@ -273,6 +292,10 @@ function SellSheet({ part, open, onClose, onSold }: { part: Part; open: boolean;
       <Field label="Sold for" hint={hint}>
         <MoneyInput value={price} onChange={e => { setPrice(e.target.value); setError(null); }} placeholder="0" />
       </Field>
+      <div className={`grid gap-3 ${owners?.length ? "grid-cols-2" : ""}`}>
+        <Field label="Date sold"><Input type="date" value={soldOn} max={todayIso()} onChange={e => { setSoldOn(e.target.value); setError(null); }} /></Field>
+        {owners && owners.length > 0 && <Field label="Money with"><OwnerSelect owners={owners} value={holder} onChange={setHolder} label="Money with" /></Field>}
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Customer"><Input maxLength={120} autoComplete="off" value={customer} onChange={e => setCustomer(e.target.value)} placeholder="Optional" /></Field>
         <Field label="Phone"><Input type="tel" inputMode="tel" maxLength={30} autoComplete="off" value={phone} onChange={e => setPhone(e.target.value)} placeholder="Optional" /></Field>
@@ -302,8 +325,10 @@ function EditPart({ part, vehicles, onDone, onCancel }: { part: Part; vehicles: 
     setError(null);
     startSaving(async () => {
       const result = await updatePart(part.id, { name, vehicleId: vehicleId || null, location, condition, description: notes, brand, serialNumber: serial, price: askingPrice });
-      if (result.error) setError(result.error);
-      else onDone();
+      startSaving(() => {
+        if (result.error) setError(result.error);
+        else onDone();
+      });
     });
   }
 

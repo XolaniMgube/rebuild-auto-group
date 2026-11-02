@@ -3,7 +3,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { Role, WorkspaceCounts } from "@/lib/types";
 
-export type Session = { name: string; email: string; role: Role };
+export type Session = { id: string; name: string; email: string; role: Role };
 
 const SessionContext = createContext<{ session: Session; counts: WorkspaceCounts | null } | null>(null);
 

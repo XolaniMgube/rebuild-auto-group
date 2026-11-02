@@ -38,6 +38,14 @@ export function ChipGroup<T extends string>({ label, options, value, onChange }:
 
 export type TileTone = "navy" | "success" | "warning" | "neutral";
 
+// Desktop tiles lead with a tinted icon square; phones keep the compact dot.
+export const TILE_ICON: Record<TileTone, string> = {
+  navy: "bg-brand-navy-tint text-brand-navy",
+  success: "bg-success-tint text-success",
+  warning: "bg-warning-tint text-warning",
+  neutral: "bg-subtle text-secondary",
+};
+
 export const TILE_DOT: Record<TileTone, string> = {
   navy: "bg-brand-navy",
   success: "bg-success",
@@ -48,19 +56,25 @@ export const TILE_DOT: Record<TileTone, string> = {
 /** Summary tiles that double as a single-choice filter, e.g. All / In stock / On hold. */
 export function FilterTiles<T extends string>({ label, options, value, onChange }: {
   label: string;
-  options: (Option<T> & { count: number; tone: TileTone })[];
+  options: (Option<T> & { count: number; tone: TileTone; icon?: string })[];
   value: T;
   onChange: (value: T) => void;
 }) {
-  return <div role="group" aria-label={label} className="grid grid-cols-3 gap-2.5 sm:gap-3">
+  return <div role="group" aria-label={label} className="grid grid-cols-3 gap-2.5 sm:gap-3 lg:gap-4">
     {options.map(option => {
       const selected = option.value === value;
       return <button key={option.value} type="button" aria-pressed={selected} onClick={() => onChange(option.value)}
-        className={`pressable rounded-2xl border px-3.5 py-3 text-left sm:px-4 sm:py-3.5 ${selected ? "border-brand-navy/30 bg-brand-navy-tint shadow-[inset_0_0_0_1px_rgb(18_63_148/0.12)]" : "border-line/70 bg-surface shadow-card hover:border-line"}`}>
-        <span className={`flex items-center gap-1.5 truncate text-meta font-medium ${selected ? "text-brand-navy" : "text-secondary"}`}>
-          <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${TILE_DOT[option.tone]}`} />{option.label}
+        className={`pressable flex items-center gap-4 rounded-2xl border px-3.5 py-3 text-left sm:px-4 sm:py-3.5 lg:px-5 lg:py-4 ${selected ? "border-brand-navy/30 bg-brand-navy-tint shadow-[inset_0_0_0_1px_rgb(18_63_148/0.12)]" : "border-line/70 bg-surface shadow-card hover:border-line"}`}>
+        {option.icon && <span aria-hidden="true" className={`hidden h-14 w-14 shrink-0 place-items-center rounded-2xl lg:grid ${TILE_ICON[option.tone]}`}>
+          <Icon name={option.icon} className="h-7 w-7" />
+        </span>}
+        <span className="min-w-0 flex-1">
+          <span className={`flex items-center gap-1.5 truncate text-meta font-medium lg:text-body ${selected ? "text-brand-navy" : "text-secondary"}`}>
+            <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${TILE_DOT[option.tone]} ${option.icon ? "lg:hidden" : ""}`} />{option.label}
+          </span>
+          <span className="mt-1.5 block text-[24px] font-bold leading-none tracking-[-0.03em] tabular-nums text-ink sm:text-[28px] lg:mt-2 lg:text-[30px]">{option.count}</span>
         </span>
-        <span className="mt-1.5 block text-[24px] font-bold leading-none tracking-[-0.03em] tabular-nums text-ink sm:text-[28px]">{option.count}</span>
+        {option.icon && <Icon name="chevron" className="hidden h-4 w-4 shrink-0 text-tertiary lg:block" />}
       </button>;
     })}
   </div>;

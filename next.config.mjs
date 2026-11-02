@@ -13,5 +13,9 @@ const nextConfig = {
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },
+  // Browsers still ask for /favicon.ico by habit; the real icon is generated at /icon.
+  async rewrites() {
+    return [{ source: "/favicon.ico", destination: "/icon" }];
+  },
 };
 export default nextConfig;

@@ -35,10 +35,11 @@ export function Textarea({ className = "", ...props }: ComponentProps<"textarea"
   return <textarea {...props} className={`control resize-none py-3.5 leading-relaxed ${className}`} />;
 }
 
-export function Select({ className = "", children, ...props }: ComponentProps<"select">) {
+export function Select({ className = "", icon, children, ...props }: ComponentProps<"select"> & { icon?: string }) {
   return <span className="relative block">
-    <select {...props} className={`control appearance-none pr-11 ${className}`}>{children}</select>
-    <Icon name="updown" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-tertiary" />
+    {icon && <Icon name={icon} className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-secondary" />}
+    <select {...props} className={`control appearance-none pr-11 ${icon ? "pl-11" : ""} ${className}`}>{children}</select>
+    <Icon name="down" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-tertiary" />
   </span>;
 }
 

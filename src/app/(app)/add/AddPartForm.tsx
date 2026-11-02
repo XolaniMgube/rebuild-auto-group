@@ -71,7 +71,8 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
         photosFailed = true;
       }
     }
-    router.push(`/parts/${result.id}?added=1${photosFailed ? "&photos=failed" : ""}`);
+    const from = vehicleId ? `&from=${encodeURIComponent(`/cars/${vehicleId}`)}` : "";
+    router.push(`/parts/${result.id}?added=1${photosFailed ? "&photos=failed" : ""}${from}`);
   }
 
   const backHref = initialCar ? `/cars/${initialCar}` : "/search";

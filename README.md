@@ -43,7 +43,7 @@ The schema, security policies and storage bucket are in `supabase/migrations`. R
 - **Owner**: everything, including money (purchase prices, expenses, sales and profit) and deleting and restoring parts and projects.
 - **Staff**: inventory, projects, asking prices and recording sales. Cannot see costs, expenses, sales or profit, delete anything, or see what has been deleted.
 
-**Recently deleted.** Deleting moves a part or project to a bin (`deleted_at`) through `bin_part()` / `bin_vehicle()`, which re-check the name the owner typed. Binned rows are hidden from staff, can't be edited or sold, and can be restored with `restore_part()` / `restore_vehicle()` for 30 days. Only binned rows can be deleted for good; that happens from the Recently deleted page, and anything older than 30 days is removed when an owner opens it. Parts with sales recorded can't be deleted, so the money figures stay right.
+**Recently deleted.** Deleting moves a part or project to a bin (`deleted_at`) through `bin_parts()` / `bin_vehicle()`. Parts are picked from a list, one or many at a time, and go straight to the bin; deleting a project asks the owner to type its name first, because it takes its parts, expenses and checklist with it. Binned rows are hidden from staff, can't be edited or sold, and can be restored with `restore_part()` / `restore_vehicle()` for 30 days. Only binned rows can be deleted for good; that happens from the Recently deleted page, and anything older than 30 days is removed when an owner opens it. Parts with sales recorded can't be deleted, so the money figures stay right.
 
 Sales are written only through `complete_sale()`, which records the price paid and the asking price at the time (so discounts stay visible) and updates stock in one transaction. Owners reverse a mistaken sale with `undo_sale()`, which puts the stock back. Each sale records who sold it (`sales.sold_by`), and a trigger stamps who put a part on hold and when (`parts.held_by`, `held_at`), clearing it when the hold ends or the part sells. Part photos go in the private `part-images` bucket under `<part id>/`; car photos and documents go in `vehicle-files` under `<car id>/photo/` and `<car id>/documents/`.
 
@@ -82,8 +82,8 @@ Add logos to `public/logos/` and other images to `public/images/`.
 Reference them from the site root: `public/logos/logo.svg` becomes `/logos/logo.svg`,
 and `public/images/car.jpg` becomes `/images/car.jpg`. Omit `public` from asset URLs.
 
-The app uses `public/logos/RAG Logo.png` for the official logo and
-`public/logos/Logo icon.png` for loading screens. Browser and home-screen icons
+The logo is built in `src/components/Logo.tsx` from `public/logos/icon-transparent.png`
+and live "RAG" lettering in Archivo Black, so spacing stays exact at every size. The same icon is used for loading screens. Browser and home-screen icons
 are generated from the icon PNG when the app builds.
 
 ## Design system

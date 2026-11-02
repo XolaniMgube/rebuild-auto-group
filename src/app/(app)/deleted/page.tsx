@@ -1,6 +1,5 @@
 import { PageHeader } from "@/components/Shell";
 import { EmptyState } from "@/components/ui";
-import { purgeExpiredItems } from "@/lib/actions";
 import { getRecentlyDeleted, getViewerRole } from "@/lib/data";
 import { RecentlyDeleted } from "./RecentlyDeleted";
 
@@ -13,8 +12,7 @@ export default async function DeletedPage() {
       </main>
     </>;
   }
-  // Anything past its 30 days is removed for good before the list is read.
-  await purgeExpiredItems();
+  // Expired items are cleared in the background (see Housekeeping); the list already leaves them out.
   const { projects, parts } = await getRecentlyDeleted();
   return <RecentlyDeleted projects={projects} parts={parts} />;
 }

@@ -19,6 +19,8 @@ export interface Vehicle {
   color: string | null;
   notes: string | null;
   purchasePrice: number;
+  purchaseDate: string;
+  paidBy: string | null; // owner id
   createdAt: string;
 }
 
@@ -93,6 +95,7 @@ export interface VehicleExpense {
   description: string | null;
   amount: number;
   spentOn: string;
+  paidBy: string | null; // owner's name
 }
 
 /** One sold line: what a part actually went for, and what was being asked at the time. */
@@ -106,18 +109,61 @@ export interface SoldItem {
   listPrice: number | null;
   soldAt: string;
   soldBy: string | null;
+  receivedBy: string | null; // owner holding the money
   customerName: string | null;
 }
 
 export interface ProjectMoney {
   expenses: VehicleExpense[];
   sales: SoldItem[];
+  income: VehicleIncome[];
+}
+
+export interface Owner {
+  id: string;
+  name: string;
+}
+
+/** Money a car brings in besides its parts, such as the shell going to scrap. */
+export type IncomeKind = "scrap" | "other";
+
+export const INCOME_LABEL: Record<IncomeKind, string> = { scrap: "Scrap / shell", other: "Other income" };
+export const INCOME_OPTIONS = (Object.keys(INCOME_LABEL) as IncomeKind[]).map(value => ({ value, label: INCOME_LABEL[value] }));
+
+export interface VehicleIncome {
+  id: string;
+  kind: IncomeKind;
+  description: string | null;
+  amount: number;
+  receivedOn: string;
+  receivedBy: string | null; // owner's name
+}
+
+/** Running costs of the business that belong to no one car. */
+export type OverheadCategory = "rent" | "fuel" | "tools" | "adverts" | "wages" | "other";
+
+export const OVERHEAD_LABEL: Record<OverheadCategory, string> = {
+  rent: "Rent",
+  fuel: "Fuel",
+  tools: "Tools",
+  adverts: "Adverts",
+  wages: "Wages",
+  other: "Other",
+};
+export const OVERHEAD_OPTIONS = (Object.keys(OVERHEAD_LABEL) as OverheadCategory[]).map(value => ({ value, label: OVERHEAD_LABEL[value] }));
+
+/** One page of the parts list, plus the counts shown above it. */
+export interface PartsPage {
+  parts: Part[];
+  total: number;
+  counts: { all: number; inStock: number; onHold: number };
 }
 
 /** Live counts shown in the sidebar. */
 export interface WorkspaceCounts {
   inStock: number;
   onHold: number;
+  unassigned: number;
   projects: number;
 }
 

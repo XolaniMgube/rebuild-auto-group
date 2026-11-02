@@ -3,6 +3,7 @@
 import { useOptimistic, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { BulkDeleteBar, useSelection } from "@/components/BulkDelete";
 import { DeleteSheet, type Stake } from "@/components/DeleteSheet";
 import { Icon } from "@/components/Icon";
 import { PartCard } from "@/components/PartCard";
@@ -10,7 +11,7 @@ import { NavBar } from "@/components/Shell";
 import { Button, ButtonLink, CheckCircle, DetailList, DetailRow, EmptyState, IconButton, IconLink, InlineError, Input, Notice, SectionHeading, SegmentedControl } from "@/components/ui";
 import { addTask, binVehicle, removeTask, setTaskDone } from "@/lib/actions";
 import { carName, plural, rands } from "@/lib/format";
-import type { Part, ProjectMoney as Money, ProjectTask, SignedPhoto, Vehicle, VehicleDocument } from "@/lib/types";
+import type { Owner, Part, ProjectMoney as Money, ProjectTask, SignedPhoto, Vehicle, VehicleDocument } from "@/lib/types";
 import { CarDocuments, CarPhotoControls } from "./CarFiles";
 import { ProjectMoney } from "./ProjectMoney";
 
@@ -27,13 +28,14 @@ function applyChange(tasks: ProjectTask[], change: TaskChange) {
 
 const headingLink = "-mr-1 inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 text-[15px] font-semibold text-brand-navy transition hover:bg-brand-navy-tint";
 
-export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, canDelete, notice }: {
+export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, owners, canDelete, notice }: {
   vehicle: Vehicle;
   photo: SignedPhoto | null;
   documents: VehicleDocument[];
   parts: Part[];
   tasks: ProjectTask[];
   money: Money | null;
+  owners: Owner[];
   canDelete: boolean;
   notice: string;
 }) {
@@ -48,6 +50,8 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
   const [fileError, setFileError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteSheet, setDeleteSheet] = useState(0);
+  const [selecting, setSelecting] = useState(false);
+  const selection = useSelection();
   const done = checklist.filter(t => t.done).length;
   const summary = [vehicle.year, vehicle.color].filter(Boolean).join(" · ");
   const facts = ([["Year", vehicle.year], ["Colour", vehicle.color], ["Registration", vehicle.registration], ["VIN", vehicle.vin]] as const)
@@ -60,12 +64,17 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
     { value: "details", label: "Details" },
   ];
 
+  function stopSelecting() {
+    setSelecting(false);
+    selection.clear();
+  }
+
   function save(change: TaskChange, action: () => Promise<{ error?: string }>) {
     setError(null);
     startTransition(async () => {
       applyOptimistic(change);
       const result = await action();
-      if (result.error) setError(result.error);
+      startTransition(() => { if (result.error) setError(result.error); });
     });
   }
 
@@ -84,7 +93,7 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
   return <>
     <NavBar back={{ href: "/cars", label: "Projects" }} title={carName(vehicle)} heading={false}
       action={<IconLink href={`/add?car=${id}`} label="Add part" icon="plus" variant="accent" className="-mr-2" />} />
-    <main className="page page-bottom pt-4 lg:pt-6">
+    <main className={`page page-bottom pt-4 lg:pt-6 ${selecting ? "pb-40 lg:pb-32" : ""}`}>
       <div className="space-y-4">
         {message && <Notice onDismiss={() => setMessage("")}>{message}</Notice>}
         {fileError && <Notice tone="error" onDismiss={() => setFileError(null)}>{fileError}</Notice>}
@@ -113,11 +122,17 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
 
             <section id="panel-parts" role="tabpanel" aria-labelledby="tab-parts" className={tab === "parts" ? "" : "hidden xl:block"}>
               <SectionHeading title="Parts" count={parts.length} action={<div className="flex items-center">
-                <Link href={`/cars/${id}/strip`} className={headingLink}><Icon name="checklist" className="h-4 w-4" />Add from list</Link>
-                {parts.length > 0 && <Link href={`/search?car=${id}`} className={headingLink}><Icon name="search" className="h-4 w-4" />Find</Link>}
+                {selecting
+                  ? <button type="button" onClick={stopSelecting} className={headingLink}>Cancel</button>
+                  : <>
+                    <Link href={`/cars/${id}/strip`} className={headingLink}><Icon name="checklist" className="h-4 w-4" />Add from list</Link>
+                    {parts.length > 0 && <Link href={`/search?car=${id}`} className={`${headingLink} hidden sm:inline-flex`}><Icon name="search" className="h-4 w-4" />Find</Link>}
+                    {canDelete && parts.length > 0 && <button type="button" onClick={() => setSelecting(true)} className={headingLink}><Icon name="check-circle" className="h-4 w-4" />Select</button>}
+                  </>}
               </div>} />
               {parts.length
-                ? <div className="space-y-3">{parts.map(p => <PartCard key={p.id} part={p} vehicle={vehicle} showVehicle={false} />)}</div>
+                ? <div className="space-y-3">{parts.map(p => <PartCard key={p.id} part={p} vehicle={vehicle} showVehicle={false} from={`/cars/${id}`}
+                  selectable={selecting} selected={selection.ids.has(p.id)} onSelect={selection.toggle} />)}</div>
                 : <div className="card"><EmptyState icon="box" title="No parts yet" description="Strip the car with the parts list, or add parts one at a time."
                   action={<div className="flex flex-wrap justify-center gap-3">
                     <ButtonLink href={`/cars/${id}/strip`}>Choose parts to strip</ButtonLink>
@@ -129,7 +144,7 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
           <div className="min-w-0 space-y-5">
             {money && <section id="panel-money" role="tabpanel" aria-labelledby="tab-money" className={tab === "money" ? "" : "hidden xl:block"}>
               <SectionHeading title="Money" />
-              <ProjectMoney vehicle={vehicle} money={money} stockValue={stockValue} onMessage={setMessage} />
+              <ProjectMoney vehicle={vehicle} money={money} stockValue={stockValue} owners={owners} onMessage={setMessage} />
             </section>}
 
             <section id="panel-checklist" role="tabpanel" aria-labelledby="tab-checklist" className={tab === "checklist" ? "" : "hidden xl:block"}>
@@ -175,6 +190,11 @@ export function ProjectDetail({ vehicle, photo, documents, parts, tasks, money, 
         </div>
       </div>
     </main>
+
+    {selecting && <BulkDeleteBar parts={parts.filter(p => selection.ids.has(p.id))}
+      allSelected={parts.length > 0 && parts.every(p => selection.ids.has(p.id))}
+      onSelectAll={() => selection.set(parts.map(p => p.id))} onClear={selection.clear}
+      onDeleted={text => { stopSelecting(); setMessage(text); }} />}
 
     {canDelete && <DeleteProjectSheet key={deleteSheet} vehicle={vehicle} photo={photo} documents={documents} parts={parts} tasks={tasks} money={money}
       open={deleting} onClose={() => setDeleting(false)} />}
