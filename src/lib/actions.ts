@@ -151,8 +151,13 @@ export async function createVehicle(input: VehicleInput): Promise<Created> {
   });
 }
 
-export async function createPart(input: PartInput): Promise<Created> {
+/**
+ * Adds a part, and for owners what it was bought for. The part is saved first,
+ * so a failed purchase never loses the part: `purchaseFailed` says to re-enter it.
+ */
+export async function createPart(input: PartInput, purchase?: PurchaseInput | null): Promise<(Created & { purchaseFailed?: true }) | { error: string }> {
   return guard(async () => {
+    const bought = purchase?.amount ? purchaseColumns(purchase) : null;
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("parts")
@@ -161,6 +166,14 @@ export async function createPart(input: PartInput): Promise<Created> {
       .select("id")
       .single();
     if (error) return failed(error);
+    if (bought) {
+      const { error: purchaseError } = await supabase.from("part_purchases").insert({ part_id: data.id, ...bought });
+      if (purchaseError) {
+        console.error(purchaseError);
+        refresh();
+        return { id: data.id, purchaseFailed: true as const };
+      }
+    }
     refresh();
     return { id: data.id };
   });
@@ -388,6 +401,16 @@ function positive(value: unknown, label: string) {
   return amount;
 }
 export type TemplatePartInput = { name: string; price: number | null };
+export type PurchaseInput = { amount: number | null; boughtOn?: string | null; paidBy?: string | null };
+
+function purchaseColumns(input: PurchaseInput) {
+  const bought_on = pastDate(input.boughtOn, "Date bought");
+  return {
+    amount: positive(input.amount, "Bought for"),
+    paid_by: ownerId(input.paidBy, "Paid by"),
+    ...(bought_on ? { bought_on } : {}),
+  };
+}
 
 export async function setPurchasePrice(vehicleId: string, amount: number, details: { purchaseDate?: string | null; paidBy?: string | null } = {}): Promise<Outcome> {
   return guard(async () => {
@@ -434,6 +457,61 @@ export async function removeExpense(expenseId: string): Promise<Outcome> {
     const id = uuid(expenseId, "Expense");
     const supabase = await createClient();
     const { error } = await supabase.from("vehicle_expenses").delete().eq("id", id);
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+/** What a part bought on its own cost. No amount clears it. */
+export async function setPartPurchase(partId: string, input: PurchaseInput): Promise<Outcome> {
+  return guard(async () => {
+    const part_id = uuid(partId, "Part");
+    const supabase = await createClient();
+    if (!input.amount) {
+      const { error } = await supabase.from("part_purchases").delete().eq("part_id", part_id);
+      if (error) return failed(error);
+    } else {
+      // Update, else add: an upsert would need the right to change part_id.
+      const columns = purchaseColumns(input);
+      const { data, error } = await supabase.from("part_purchases").update(columns).eq("part_id", part_id).select("part_id");
+      if (error) return failed(error);
+      if (!data.length) {
+        const { error: insertError } = await supabase.from("part_purchases").insert({ part_id, ...columns });
+        if (insertError) return failed(insertError);
+      }
+    }
+    refresh();
+    return {};
+  });
+}
+
+export async function addPartExpense(partId: string, input: ExpenseInput): Promise<Outcome> {
+  return guard(async () => {
+    const part_id = uuid(partId, "Part");
+    if (!EXPENSE_CATEGORIES.includes(input.category)) throw new InvalidInput("Choose what the expense was for.");
+    const amount = positive(input.amount, "Amount");
+    const spent_on = pastDate(input.spentOn, "Date");
+    const supabase = await createClient();
+    const { error } = await supabase.from("part_expenses").insert({
+      part_id,
+      category: input.category,
+      amount,
+      description: optionalText(input.description, "Note", 120),
+      paid_by: ownerId(input.paidBy, "Paid by"),
+      ...(spent_on ? { spent_on } : {}),
+    });
+    if (error) return failed(error);
+    refresh();
+    return {};
+  });
+}
+
+export async function removePartExpense(expenseId: string): Promise<Outcome> {
+  return guard(async () => {
+    const id = uuid(expenseId, "Expense");
+    const supabase = await createClient();
+    const { error } = await supabase.from("part_expenses").delete().eq("id", id);
     if (error) return failed(error);
     refresh();
     return {};

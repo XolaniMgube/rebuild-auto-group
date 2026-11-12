@@ -15,6 +15,7 @@ import {
   type OverheadCategory,
   type PartsPage,
   type Part,
+  type PartMoney,
   type ProjectMoney,
   type ProjectSummary,
   type ProjectTask,
@@ -173,11 +174,42 @@ export const getViewerRole = cache(async (): Promise<Role | null> => {
   return profile?.role ?? null;
 });
 
+type ExpenseRecord = { id: string; category: string; description: string | null; amount: number; spent_on: string; payer: Person };
+
+function toExpense(row: ExpenseRecord) {
+  return {
+    id: row.id,
+    category: row.category as ExpenseCategory,
+    description: row.description,
+    amount: row.amount,
+    spentOn: row.spent_on,
+    paidBy: personName(row.payer),
+  };
+}
+
+/** Costs of parts bought in, on one car or on any (or no) car. Parts in Recently deleted are left out. */
+async function boughtPartCosts(supabase: Client, vehicleId?: string) {
+  const [purchases, expenses] = await Promise.all([
+    allRows<{ part_id: string; amount: number; bought_on: string; paid_by: string | null; part: { vehicle_id: string | null } }>((from, to) => {
+      const query = supabase.from("part_purchases").select("part_id, amount, bought_on, paid_by, part:parts!inner(vehicle_id)").is("part.deleted_at", null);
+      return (vehicleId ? query.eq("part.vehicle_id", vehicleId) : query).order("part_id").range(from, to);
+    }),
+    allRows<{ part_id: string; amount: number; spent_on: string; paid_by: string | null; part: { vehicle_id: string | null } }>((from, to) => {
+      const query = supabase.from("part_expenses").select("part_id, amount, spent_on, paid_by, part:parts!inner(vehicle_id)").is("part.deleted_at", null);
+      return (vehicleId ? query.eq("part.vehicle_id", vehicleId) : query).order("id").range(from, to);
+    }),
+  ]);
+  return [
+    ...purchases.map((row) => ({ partId: row.part_id, vehicleId: row.part.vehicle_id, amount: row.amount, on: row.bought_on, paidBy: row.paid_by })),
+    ...expenses.map((row) => ({ partId: row.part_id, vehicleId: row.part.vehicle_id, amount: row.amount, on: row.spent_on, paidBy: row.paid_by })),
+  ];
+}
+
 /** Expenses and sales for one car. Row level security returns nothing to staff, so only call this for owners. */
 export async function getProjectMoney(vehicleId: string): Promise<ProjectMoney> {
-  if (!isUuid(vehicleId)) return { expenses: [], sales: [], income: [] };
+  if (!isUuid(vehicleId)) return { expenses: [], sales: [], income: [], boughtParts: { count: 0, total: 0 } };
   const supabase = await createClient();
-  const [expenses, sales, income] = await Promise.all([
+  const [expenses, sales, income, partCosts] = await Promise.all([
     supabase
       .from("vehicle_expenses")
       .select("id, category, description, amount, spent_on, payer:profiles!vehicle_expenses_paid_by_fkey(name, email)")
@@ -192,19 +224,13 @@ export async function getProjectMoney(vehicleId: string): Promise<ProjectMoney> 
       .eq("vehicle_id", vehicleId)
       .order("received_on", { ascending: false })
       .order("created_at", { ascending: false }),
+    boughtPartCosts(supabase, vehicleId),
   ]);
   if (expenses.error) throw new Error(expenses.error.message);
   if (sales.error) throw new Error(sales.error.message);
   if (income.error) throw new Error(income.error.message);
   return {
-    expenses: expenses.data.map((row) => ({
-      id: row.id,
-      category: row.category as ExpenseCategory,
-      description: row.description,
-      amount: row.amount,
-      spentOn: row.spent_on,
-      paidBy: personName(row.payer),
-    })),
+    expenses: expenses.data.map(toExpense),
     sales: (sales.data as SaleRecord[]).map(toSoldItem).sort((a, b) => b.soldAt.localeCompare(a.soldAt)),
     income: income.data.map((row) => ({
       id: row.id,
@@ -214,6 +240,31 @@ export async function getProjectMoney(vehicleId: string): Promise<ProjectMoney> 
       receivedOn: row.received_on,
       receivedBy: personName(row.holder),
     })),
+    boughtParts: {
+      count: new Set(partCosts.map((cost) => cost.partId)).size,
+      total: Math.round(partCosts.reduce((sum, cost) => sum + cost.amount, 0) * 100) / 100,
+    },
+  };
+}
+
+/** What one part cost, if it was bought in. Owners only: staff get nothing back. */
+export async function getPartMoney(partId: string): Promise<PartMoney> {
+  if (!isUuid(partId)) return { purchase: null, expenses: [] };
+  const supabase = await createClient();
+  const [purchase, expenses] = await Promise.all([
+    supabase.from("part_purchases").select("amount, bought_on, paid_by").eq("part_id", partId).maybeSingle(),
+    supabase
+      .from("part_expenses")
+      .select("id, category, description, amount, spent_on, payer:profiles!part_expenses_paid_by_fkey(name, email)")
+      .eq("part_id", partId)
+      .order("spent_on", { ascending: false })
+      .order("created_at", { ascending: false }),
+  ]);
+  if (purchase.error) throw new Error(purchase.error.message);
+  if (expenses.error) throw new Error(expenses.error.message);
+  return {
+    purchase: purchase.data && { amount: purchase.data.amount, boughtOn: purchase.data.bought_on, paidBy: purchase.data.paid_by },
+    expenses: expenses.data.map(toExpense),
   };
 }
 
@@ -356,6 +407,7 @@ export async function getProjectSummaries(includeMoney = false): Promise<Project
       allRows<{ vehicle_id: string; amount: number }>((from, to) =>
         supabase.from("vehicle_income").select("vehicle_id, amount").order("id").range(from, to)
       ),
+      boughtPartCosts(supabase),
     ])
     : null;
   const [vehicles, parts, tasks] = await Promise.all([
@@ -388,6 +440,8 @@ export async function getProjectSummaries(includeMoney = false): Promise<Project
   const money = moneyRows ? await moneyRows : null;
   if (money) {
     for (const expense of money[0]) spent.set(expense.vehicle_id, (spent.get(expense.vehicle_id) ?? 0) + expense.amount);
+    // Parts bought in for a car add to what the car cost.
+    for (const cost of money[3]) if (cost.vehicleId) spent.set(cost.vehicleId, (spent.get(cost.vehicleId) ?? 0) + cost.amount);
     for (const item of money[1]) {
       if (item.vehicle_id) sold.set(item.vehicle_id, (sold.get(item.vehicle_id) ?? 0) + item.price_at_sale * item.quantity);
     }
@@ -546,7 +600,7 @@ const saDate = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { time
  */
 export async function getMoneyOverview(): Promise<MoneyData> {
   const supabase = await createClient();
-  const [owners, cars, carExpenses, saleLines, income, overheads, transfers] = await Promise.all([
+  const [owners, cars, carExpenses, saleLines, income, overheads, transfers, partCosts] = await Promise.all([
     getOwners(),
     allRows<{ id: string; make: string; model: string; year: number | null; purchase_price: number; purchase_date: string; paid_by: string | null }>((from, to) =>
       supabase.from("vehicles").select("id, make, model, year, purchase_price, purchase_date, paid_by").is("deleted_at", null).order("purchase_date", { ascending: false }).order("id").range(from, to)
@@ -566,6 +620,7 @@ export async function getMoneyOverview(): Promise<MoneyData> {
     allRows<{ id: string; from_owner: string | null; to_owner: string | null; amount: number; transferred_on: string; note: string | null }>((from, to) =>
       supabase.from("partner_transfers").select("id, from_owner, to_owner, amount, transferred_on, note").order("transferred_on", { ascending: false }).order("id").range(from, to)
     ),
+    boughtPartCosts(supabase),
   ]);
 
   const live = new Set(cars.map((car) => car.id));
@@ -578,8 +633,13 @@ export async function getMoneyOverview(): Promise<MoneyData> {
       purchaseDate: car.purchase_date,
       paidBy: car.paid_by,
     })),
-    carExpenses: carExpenses.filter((row) => live.has(row.vehicle_id))
-      .map((row) => ({ vehicleId: row.vehicle_id, amount: row.amount, on: row.spent_on, paidBy: row.paid_by })),
+    carExpenses: [
+      ...carExpenses.filter((row) => live.has(row.vehicle_id))
+        .map((row) => ({ vehicleId: row.vehicle_id, amount: row.amount, on: row.spent_on, paidBy: row.paid_by })),
+      // Parts bought in count as stock costs, on their car if they have one.
+      ...partCosts.filter((cost) => !cost.vehicleId || live.has(cost.vehicleId))
+        .map((cost) => ({ vehicleId: cost.vehicleId, amount: cost.amount, on: cost.on, paidBy: cost.paidBy })),
+    ],
     sales: saleLines.filter((row) => !row.vehicle_id || live.has(row.vehicle_id))
       .map((row) => ({ vehicleId: row.vehicle_id, amount: row.price_at_sale * row.quantity, on: saDate(row.sale.sale_date), receivedBy: row.sale.received_by })),
     income: income.filter((row) => live.has(row.vehicle_id))

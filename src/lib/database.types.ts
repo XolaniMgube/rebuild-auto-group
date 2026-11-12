@@ -82,6 +82,64 @@ export type Database = {
           },
         ]
       }
+      part_expenses: {
+        Row: {
+          added_by: string | null
+          amount: number
+          category: string
+          created_at: string
+          description: string | null
+          id: string
+          paid_by: string | null
+          part_id: string
+          spent_on: string
+        }
+        Insert: {
+          added_by?: string | null
+          amount: number
+          category: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          paid_by?: string | null
+          part_id: string
+          spent_on?: string
+        }
+        Update: {
+          added_by?: string | null
+          amount?: number
+          category?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          paid_by?: string | null
+          part_id?: string
+          spent_on?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "part_expenses_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_expenses_paid_by_fkey"
+            columns: ["paid_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_expenses_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       part_images: {
         Row: {
           added_by: string | null
@@ -119,6 +177,58 @@ export type Database = {
             foreignKeyName: "part_images_part_id_fkey"
             columns: ["part_id"]
             isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      part_purchases: {
+        Row: {
+          added_by: string | null
+          amount: number
+          bought_on: string
+          created_at: string
+          paid_by: string | null
+          part_id: string
+          updated_at: string
+        }
+        Insert: {
+          added_by?: string | null
+          amount: number
+          bought_on?: string
+          created_at?: string
+          paid_by?: string | null
+          part_id: string
+          updated_at?: string
+        }
+        Update: {
+          added_by?: string | null
+          amount?: number
+          bought_on?: string
+          created_at?: string
+          paid_by?: string | null
+          part_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "part_purchases_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_purchases_paid_by_fkey"
+            columns: ["paid_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_purchases_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: true
             referencedRelation: "parts"
             referencedColumns: ["id"]
           },

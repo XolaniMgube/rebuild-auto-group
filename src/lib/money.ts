@@ -9,7 +9,7 @@ import type { OverheadCategory, Owner } from "./types";
 export type MoneyData = {
   owners: Owner[];
   cars: { id: string; name: string; purchasePrice: number; purchaseDate: string; paidBy: string | null }[];
-  carExpenses: { vehicleId: string; amount: number; on: string; paidBy: string | null }[];
+  carExpenses: { vehicleId: string | null; amount: number; on: string; paidBy: string | null }[]; // null: a part bought in for no car
   sales: { vehicleId: string | null; amount: number; on: string; receivedBy: string | null }[];
   income: { vehicleId: string; amount: number; on: string; receivedBy: string | null }[];
   overheads: { id: string; category: OverheadCategory; description: string | null; amount: number; on: string; paidBy: string | null }[];

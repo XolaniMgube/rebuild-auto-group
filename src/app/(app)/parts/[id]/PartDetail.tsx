@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { MediaPicker, RemoveButton } from "@/components/Attachments";
 import { DeleteSheet, type Stake } from "@/components/DeleteSheet";
-import { OwnerSelect, useDefaultOwner } from "@/components/MoneyEntry";
+import { MoneyCard, MoneyEntryForm, OwnerSelect, PurchaseSheet, useDefaultOwner } from "@/components/MoneyEntry";
 import { Icon } from "@/components/Icon";
 import { partKind } from "@/components/PartThumb";
 import { NavBar } from "@/components/Shell";
@@ -12,14 +12,18 @@ import {
   Button, ButtonLink, ConditionBadge, DetailList, DetailRow, DisclosureCard, Field, FieldSet, FormSection, IconButton, InlineError, Input,
   MoneyInput, Notice, RowLink, SectionHeading, SegmentedControl, Select, Sheet, Spinner, StatusBadge, Textarea, useConfirm,
 } from "@/components/ui";
-import { binParts, removePartImage, sellPart, setPartHold, undoSale, updatePart } from "@/lib/actions";
+import { addPartExpense, binParts, removePartExpense, removePartImage, sellPart, setPartHold, setPartPurchase, undoSale, updatePart } from "@/lib/actions";
 import { discardPreview, prepareAll, preparePhoto } from "@/lib/files";
 import { carName, longDate, parseRands, plural, rands, shortDate, timeAgo, todayIso } from "@/lib/format";
 import { withParam } from "@/lib/return-to";
-import { ACTIVE_STATUSES, CONDITION_LABEL, CONDITION_OPTIONS, MAX_PART_PHOTOS, type Owner, type Part, type SoldItem, type Vehicle } from "@/lib/types";
+import {
+  ACTIVE_STATUSES, CONDITION_LABEL, CONDITION_OPTIONS, EXPENSE_LABEL, EXPENSE_OPTIONS, MAX_PART_PHOTOS,
+  type Owner, type Part, type PartMoney, type SoldItem, type Vehicle, type VehicleExpense,
+} from "@/lib/types";
 
-export function PartDetail({ part, vehicles, sales, owners, canDelete, back, notice }: {
+export function PartDetail({ part, vehicles, sales, money, owners, canDelete, back, notice }: {
   part: Part;
+  money: PartMoney | null; // owners only
   owners: Owner[] | null; // owners only: who can hold the money from a sale
   vehicles: Vehicle[];
   sales: SoldItem[] | null;
@@ -203,6 +207,8 @@ export function PartDetail({ part, vehicles, sales, owners, canDelete, back, not
                   })}</ul>
                 </div>}
 
+                {money && <PartCost part={part} money={money} sales={sales ?? []} onMessage={setMessage} />}
+
                 <div>
                   <SectionHeading variant="group" title="Inventory" />
                   <DetailList>
@@ -254,6 +260,79 @@ export function PartDetail({ part, vehicles, sales, owners, canDelete, back, not
         return {};
       }} />}
   </>;
+}
+
+const joined = (...parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(" · ");
+const cents = (value: number) => Math.round(value * 100) / 100;
+
+// Part costs come out of business money, so unlike car costs they don't record which owner paid.
+const NO_PAYER: Owner[] = [];
+
+/** Owner-only: what the part was bought for, costs on top, and the profit it makes. */
+function PartCost({ part, money, sales, onMessage }: { part: Part; money: PartMoney; sales: SoldItem[]; onMessage: (message: string) => void }) {
+  const confirm = useConfirm();
+  const [editing, setEditing] = useState(false);
+  const [sheet, setSheet] = useState(0);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [, startRemoving] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const purchase = money.purchase;
+  const expensesTotal = cents(money.expenses.reduce((sum, expense) => sum + expense.amount, 0));
+  const cost = cents((purchase?.amount ?? 0) + expensesTotal);
+  const sold = cents(sales.reduce((sum, sale) => sum + sale.price * sale.quantity, 0));
+  // Profit once sold; until then, what it would make at the asking price.
+  const profit = sales.length ? cents(sold - cost) : part.price > 0 ? cents(part.price - cost) : null;
+
+  async function dropExpense(expense: VehicleExpense) {
+    if (!(await confirm({ title: `Remove ${EXPENSE_LABEL[expense.category].toLowerCase()} expense?`, message: `${rands(expense.amount)} comes off this part's cost.`, confirmLabel: "Remove" }))) return;
+    setError(null);
+    setRemoving(expense.id);
+    startRemoving(async () => {
+      const result = await removePartExpense(expense.id);
+      startRemoving(() => {
+        setRemoving(null);
+        if (result.error) setError(result.error);
+        else onMessage("Expense removed");
+      });
+    });
+  }
+
+  return <div className="space-y-3">
+    <SectionHeading variant="group" title="Cost" />
+    <DetailList>
+      <DetailRow label="Bought for" value={<button type="button" onClick={() => { setSheet(n => n + 1); setEditing(true); }}
+        className="-my-2 inline-flex min-h-11 flex-col items-end justify-center rounded-lg px-1 text-brand-navy">
+        <span className="inline-flex items-center gap-1.5 font-semibold tabular-nums">{purchase ? rands(purchase.amount) : "Add price"}<Icon name="pencil" className="h-4 w-4" /></span>
+        {purchase && <span className="text-caption font-normal text-secondary">{shortDate(purchase.boughtOn)}</span>}
+      </button>} />
+      {expensesTotal > 0 && <DetailRow label="Expenses" value={rands(expensesTotal)} />}
+      {cost > 0 && profit !== null && <DetailRow label={sales.length ? (profit >= 0 ? "Profit" : "Loss") : "Profit at asking price"}
+        value={<span className={`font-semibold tabular-nums ${profit >= 0 ? "text-success" : "text-ink"}`}>{rands(Math.abs(profit))}</span>} />}
+    </DetailList>
+    {error && <InlineError>{error}</InlineError>}
+
+    <MoneyCard title="Expenses" amount={expensesTotal}
+      empty="Petrol to fetch it, labour, repairs: anything spent on this part."
+      rows={money.expenses.map(expense => ({
+        id: expense.id,
+        title: expense.description || EXPENSE_LABEL[expense.category],
+        meta: joined(expense.description && EXPENSE_LABEL[expense.category], shortDate(expense.spentOn)),
+        amount: expense.amount,
+        action: removing === expense.id
+          ? <span className="grid h-11 w-11 place-items-center"><Spinner /></span>
+          : <IconButton label={`Remove ${EXPENSE_LABEL[expense.category]} expense of ${rands(expense.amount)}`} icon="close" variant="plain" disabled={removing !== null} onClick={() => dropExpense(expense)} className="-mr-2" />,
+      }))}>
+      <MoneyEntryForm options={EXPENSE_OPTIONS} owners={NO_PAYER} personLabel="Paid by" submitLabel="Add expense"
+        onSave={entry => addPartExpense(part.id, { category: entry.kind, amount: entry.amount, description: entry.note, spentOn: entry.on })}
+        onSaved={entry => onMessage(`${EXPENSE_LABEL[entry.kind]} expense added`)} />
+    </MoneyCard>
+
+    <PurchaseSheet key={sheet} label="Price paid" description="What you paid for this part. Add petrol and other costs as expenses."
+      initial={purchase && { amount: purchase.amount, on: purchase.boughtOn, paidBy: null }} owners={NO_PAYER}
+      open={editing} onClose={() => setEditing(false)}
+      onSave={next => setPartPurchase(part.id, { amount: next.amount, boughtOn: next.on })}
+      onSaved={() => { setEditing(false); onMessage(purchase ? "Purchase saved" : "Purchase added"); }} />
+  </div>;
 }
 
 /** Records what the customer actually paid, which may be less than the asking price. */
