@@ -7,10 +7,10 @@ import { FormFooter, NavBar } from "@/components/Shell";
 import { Button, DisclosureCard, Field, FieldSet, FormSection, InlineError, Input, MoneyInput, SegmentedControl, Select, Spinner, Textarea } from "@/components/ui";
 import { createPart } from "@/lib/actions";
 import { discardPreview, prepareAll, preparePhoto, type PreparedFile } from "@/lib/files";
-import { carName, parseRands } from "@/lib/format";
+import { carName, parseRands, todayIso } from "@/lib/format";
 import { CONDITION_OPTIONS, MAX_PART_PHOTOS, type Condition, type Vehicle } from "@/lib/types";
 
-export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; initialCar: string | null }) {
+export function AddPartForm({ vehicles, canRecordCost, initialCar }: { vehicles: Vehicle[]; canRecordCost: boolean; initialCar: string | null }) {
   const router = useRouter();
 
   const [photos, setPhotos] = useState<PreparedFile[]>([]);
@@ -22,6 +22,8 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
   const [serial, setSerial] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
+  const [cost, setCost] = useState("");
+  const [boughtOn, setBoughtOn] = useState(todayIso());
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,10 +52,17 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
     if (busy || saving) return;
     const askingPrice = parseRands(price);
     if (Number.isNaN(askingPrice)) { setError("Enter the price in rands, e.g. 400."); return; }
+    const boughtFor = canRecordCost ? parseRands(cost) : null;
+    if (Number.isNaN(boughtFor)) { setError("Enter what you paid in rands, e.g. 2500."); return; }
+    if (boughtFor && (!boughtOn || boughtOn > todayIso())) { setError("Choose a date bought that isn't in the future."); return; }
 
     setSaving(true);
     setError(null);
-    const result = await createPart({ name, vehicleId: vehicleId || null, condition, location, brand, serialNumber: serial, description, price: askingPrice });
+    // A dropped connection rejects instead of returning an error; never leave the button spinning.
+    const result = await createPart(
+      { name, vehicleId: vehicleId || null, condition, location, brand, serialNumber: serial, description, price: askingPrice },
+      boughtFor ? { amount: boughtFor, boughtOn } : null,
+    ).catch(() => ({ error: "Couldn't save. Check your connection and try again." }));
     if ("error" in result) {
       setError(result.error);
       setSaving(false);
@@ -72,7 +81,8 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
       }
     }
     const from = vehicleId ? `&from=${encodeURIComponent(`/cars/${vehicleId}`)}` : "";
-    router.push(`/parts/${result.id}?added=1${photosFailed ? "&photos=failed" : ""}${from}`);
+    const bought = "purchaseFailed" in result ? "&bought=failed" : "";
+    router.push(`/parts/${result.id}?added=1${photosFailed ? "&photos=failed" : ""}${bought}${from}`);
   }
 
   const backHref = initialCar ? `/cars/${initialCar}` : "/search";
@@ -104,6 +114,13 @@ export function AddPartForm({ vehicles, initialCar }: { vehicles: Vehicle[]; ini
           <Field label="Asking price"><MoneyInput value={price} onChange={e => { setPrice(e.target.value); setError(null); }} placeholder="e.g. 400" /></Field>
           <Field label="Location"><Input maxLength={60} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Rack B3" /></Field>
         </FormSection>
+
+        {canRecordCost && <FormSection title="Bought in" aside="Optional">
+          <Field label="Bought for" hint="Only if you bought this part rather than stripping it from a car.">
+            <MoneyInput value={cost} onChange={e => { setCost(e.target.value); setError(null); }} placeholder="e.g. 2500" />
+          </Field>
+          {cost.trim() && <Field label="Date bought"><Input type="date" value={boughtOn} max={todayIso()} onChange={e => setBoughtOn(e.target.value)} /></Field>}
+        </FormSection>}
 
         <DisclosureCard title="More details" aside="Optional">
           <Field label="Brand"><Input maxLength={60} value={brand} onChange={e => setBrand(e.target.value)} /></Field>

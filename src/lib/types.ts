@@ -117,6 +117,13 @@ export interface ProjectMoney {
   expenses: VehicleExpense[];
   sales: SoldItem[];
   income: VehicleIncome[];
+  boughtParts: { count: number; total: number }; // parts on this car that were bought in, with their costs
+}
+
+/** What a part bought on its own cost: the price paid, and costs on top like petrol to fetch it. */
+export interface PartMoney {
+  purchase: { amount: number; boughtOn: string; paidBy: string | null } | null; // paidBy: owner id
+  expenses: VehicleExpense[];
 }
 
 export interface Owner {
